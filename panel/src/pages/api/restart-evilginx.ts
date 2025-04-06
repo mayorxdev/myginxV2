@@ -80,8 +80,8 @@ export default async function handler(
       await sleep(2000);
       console.log("Waited for quit");
 
-      console.log("Restarting evilginx...");
-      // Send the restart command
+      // Run evilginx command in the same session
+      console.log("Sending restart command...");
       await execAsync(
         'tmux send-keys -t ginx "./evilginx3 -feed -g ../gophish/gophish.db" Enter'
       );
