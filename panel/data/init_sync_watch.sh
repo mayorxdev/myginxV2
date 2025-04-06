@@ -150,27 +150,14 @@ create_symlinks() {
         continue
       else
         warning "Symlink for $file points to wrong target: $target"
-        read -p "Do you want to fix this symlink? (y/n): " choice
-        if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
-          log "Removing incorrect symlink for $file"
-          rm -f "$panel_file"
-        else
-          warning "Keeping existing symlink. This may cause issues."
-          continue
-        fi
+        log "Removing incorrect symlink for $file"
+        rm -f "$panel_file"
       fi
     elif [[ -e "$panel_file" && ! -L "$panel_file" ]]; then
-      # Regular file exists, not a symlink
+      # Regular file exists, not a symlink - automatically replace without prompting
       warning "Found regular file $panel_file instead of symlink"
-      warning "This may indicate that you have custom data that should not be overwritten"
-      read -p "Do you want to replace it with a symlink to the .evilginx file? (y/n): " choice
-      if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
-        warning "Moving original file to $panel_file.bak"
-        mv "$panel_file" "$panel_file.bak"
-      else
-        warning "Keeping existing file. This may cause issues with synchronization."
-        continue
-      fi
+      warning "Automatically replacing with symlink (backup saved as $panel_file.bak)"
+      mv "$panel_file" "$panel_file.bak"
     fi
     
     # Create the symlink from panel/data to .evilginx using relative path
