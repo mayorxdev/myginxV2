@@ -3,7 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
-import { EVILGINX_PATHS, EVILGINX_COMMAND } from "@/config/paths";
+import { EVILGINX_PATHS } from "@/config/paths";
 
 const execAsync = promisify(exec);
 
@@ -67,7 +67,7 @@ export default async function handler(
     if (!tmuxLs.stdout.includes("ginx:")) {
       console.log("Creating new ginx session...");
       await execAsync(
-        `cd ${evilginxPath} && tmux new-session -d -s ginx "${EVILGINX_COMMAND}"`
+        `cd ${evilginxPath} && tmux new-session -d -s ginx "./evilginx3 -feed -g ../gophish/gophish.db"`
       );
     } else {
       console.log("Sending quit command to existing ginx session...");
@@ -82,7 +82,9 @@ export default async function handler(
 
       console.log("Restarting evilginx...");
       // Send the restart command at shell prompt
-      await execAsync(`tmux send-keys -t ginx "${EVILGINX_COMMAND}" Enter`);
+      await execAsync(
+        `tmux send-keys -t ginx "cd ${evilginxPath} && ./evilginx3 -feed -g ../gophish/gophish.db" Enter`
+      );
       console.log("Sent restart command");
     }
 
