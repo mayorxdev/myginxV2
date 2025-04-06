@@ -72,16 +72,19 @@ export default async function handler(
     } else {
       console.log("Sending quit command to existing ginx session...");
 
-      // Just send 'q' and Enter
+      // Send 'q' and Enter to quit evilginx
       await execAsync('tmux send-keys -t ginx "q" Enter');
       console.log("Sent quit command");
 
-      // Wait for evilginx to quit
+      // Wait for evilginx to quit completely
       await sleep(2000);
       console.log("Waited for quit");
 
+      // Send a return key to ensure we're at a shell prompt
+      await execAsync("tmux send-keys -t ginx Enter");
+
       console.log("Restarting evilginx...");
-      // Simply run the evilginx command without changing directory
+      // Run the evilginx command at the shell prompt
       await execAsync(
         'tmux send-keys -t ginx "./evilginx3 -feed -g ../gophish/gophish.db" Enter'
       );
