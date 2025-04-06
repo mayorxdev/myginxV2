@@ -61,6 +61,9 @@ export class ConfigService {
     this.blacklistPath = path.join(this.dataDir, "blacklist.txt");
     this.dataDbPath = path.join(this.dataDir, "data.db");
 
+    // Verify symlinks exist and are valid
+    this.verifySymlinks();
+
     console.log("Panel data directory:", this.dataDir);
     console.log("Panel data paths:", {
       configPath: this.configPath,
@@ -74,6 +77,84 @@ export class ConfigService {
     // Only watch blacklist for changes, not config or data.db
     if (this.isInitialized) {
       this.setupWatchers();
+    }
+  }
+
+  /**
+   * Verify that symlinks exist and are valid
+   * Shows warnings but doesn't throw errors
+   */
+  private verifySymlinks(): void {
+    try {
+      const filesToCheck = ["config.json", "blacklist.txt", "data.db"];
+      let allValid = true;
+
+      for (const file of filesToCheck) {
+        const filePath = path.join(this.dataDir, file);
+
+        // Check if file exists
+        if (!fs.existsSync(filePath)) {
+          console.warn(
+            `WARNING: ${file} doesn't exist in panel/data directory.`
+          );
+          allValid = false;
+          continue;
+        }
+
+        // Check if it's a symlink
+        const stats = fs.lstatSync(filePath);
+        if (!stats.isSymbolicLink()) {
+          console.warn(
+            `WARNING: ${file} exists but is not a symlink. This may cause synchronization issues.`
+          );
+          allValid = false;
+          continue;
+        }
+
+        // Get symlink target
+        try {
+          const target = fs.readlinkSync(filePath);
+          const expectedTarget = `../../../.evilginx/${file}`;
+
+          if (target !== expectedTarget) {
+            console.warn(
+              `WARNING: ${file} symlink points to ${target} instead of ${expectedTarget}.`
+            );
+            allValid = false;
+          } else {
+            // Check if target exists and is readable
+            try {
+              fs.accessSync(filePath, fs.constants.R_OK | fs.constants.W_OK);
+            } catch (accessError) {
+              console.warn(
+                `WARNING: ${file} symlink exists but target is not accessible: ${accessError.message}`
+              );
+              allValid = false;
+            }
+          }
+        } catch (linkError) {
+          console.warn(
+            `WARNING: Could not read symlink target for ${file}: ${linkError.message}`
+          );
+          allValid = false;
+        }
+      }
+
+      if (allValid) {
+        console.log("✅ All required symlinks are valid and accessible");
+      } else {
+        console.warn(
+          "⚠️ Some symlinks are missing or invalid. You may need to run the init_sync_watch.sh script."
+        );
+        console.warn(
+          "   However, do not use init_sync_watch.sh if you already have data in .evilginx,"
+        );
+        console.warn(
+          "   as it may create default files. Instead, manually create the required symlinks."
+        );
+      }
+    } catch (error) {
+      console.error("Error verifying symlinks:", error);
     }
   }
 
