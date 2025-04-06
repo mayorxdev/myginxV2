@@ -7,6 +7,127 @@ const dataDir = path.join(process.cwd(), "data");
 const syncScriptPath = path.join(dataDir, "init_sync_watch.sh");
 const verifyScriptPath = path.join(dataDir, "verify_integrity.sh");
 const initialSetupScriptPath = path.join(dataDir, "initial_setup.sh");
+const protectScriptPath = path.join(dataDir, "protect_evilginx.sh");
+
+// Function to protect the .evilginx directory from accidental deletion
+function protectEvilginxDirectory() {
+  try {
+    const workspaceDir = path.resolve(process.cwd(), "../../..");
+    const evilginxDir = path.join(workspaceDir, ".evilginx");
+    const backupDir = path.join(
+      workspaceDir,
+      ".evilginx_backups",
+      `backup_${new Date().toISOString().replace(/[:.]/g, "-")}`
+    );
+
+    console.log("Activating protection for .evilginx directory...");
+
+    // Check if .evilginx directory exists
+    if (!fs.existsSync(evilginxDir)) {
+      console.error("CRITICAL: .evilginx directory doesn't exist!");
+
+      // Check if we have any backups to restore from
+      const backupsRootDir = path.join(workspaceDir, ".evilginx_backups");
+      if (fs.existsSync(backupsRootDir)) {
+        // Get list of backup directories sorted by date (newest first)
+        const backupDirs = fs
+          .readdirSync(backupsRootDir)
+          .filter((dir) => dir.startsWith("backup_"))
+          .sort()
+          .reverse();
+
+        if (backupDirs.length > 0) {
+          const latestBackup = path.join(backupsRootDir, backupDirs[0]);
+          console.log(`Found backup at ${latestBackup}, restoring...`);
+
+          // Create the .evilginx directory and copy files from backup
+          fs.mkdirSync(evilginxDir, { recursive: true, mode: 0o755 });
+
+          // Copy key files from backup
+          const requiredFiles = ["config.json", "blacklist.txt", "data.db"];
+          for (const file of requiredFiles) {
+            const backupFile = path.join(latestBackup, file);
+            const destFile = path.join(evilginxDir, file);
+
+            if (fs.existsSync(backupFile)) {
+              fs.copyFileSync(backupFile, destFile);
+              console.log(`Restored ${file} from backup`);
+            }
+          }
+
+          // Also restore crt directory if it exists
+          const backupCrtDir = path.join(latestBackup, "crt");
+          const destCrtDir = path.join(evilginxDir, "crt");
+          if (fs.existsSync(backupCrtDir)) {
+            fs.mkdirSync(destCrtDir, { recursive: true, mode: 0o755 });
+
+            // Copy all files from crt directory
+            const crtFiles = fs.readdirSync(backupCrtDir);
+            for (const file of crtFiles) {
+              const backupFile = path.join(backupCrtDir, file);
+              const destFile = path.join(destCrtDir, file);
+
+              if (fs.statSync(backupFile).isFile()) {
+                fs.copyFileSync(backupFile, destFile);
+              }
+            }
+            console.log("Restored crt directory from backup");
+          }
+
+          console.log("Successfully restored .evilginx directory from backup");
+          return true;
+        } else {
+          console.error("No backups found to restore from");
+          return false;
+        }
+      } else {
+        console.error("No backups directory found - can't restore");
+        return false;
+      }
+    }
+
+    // If directory exists, create a backup
+    console.log(`Creating backup of .evilginx directory at ${backupDir}`);
+    fs.mkdirSync(backupDir, { recursive: true, mode: 0o755 });
+
+    // Backup key files
+    const requiredFiles = ["config.json", "blacklist.txt", "data.db"];
+    for (const file of requiredFiles) {
+      const sourcePath = path.join(evilginxDir, file);
+      const backupPath = path.join(backupDir, file);
+
+      if (fs.existsSync(sourcePath)) {
+        fs.copyFileSync(sourcePath, backupPath);
+        console.log(`Backed up ${file}`);
+      }
+    }
+
+    // Backup crt directory if it exists
+    const crtDir = path.join(evilginxDir, "crt");
+    const backupCrtDir = path.join(backupDir, "crt");
+    if (fs.existsSync(crtDir)) {
+      fs.mkdirSync(backupCrtDir, { recursive: true, mode: 0o755 });
+
+      // Copy all files from crt directory
+      const crtFiles = fs.readdirSync(crtDir);
+      for (const file of crtFiles) {
+        const sourcePath = path.join(crtDir, file);
+        const backupPath = path.join(backupCrtDir, file);
+
+        if (fs.statSync(sourcePath).isFile()) {
+          fs.copyFileSync(sourcePath, backupPath);
+        }
+      }
+      console.log("Backed up crt directory");
+    }
+
+    console.log("Successfully protected .evilginx directory");
+    return true;
+  } catch (error) {
+    console.error("Error protecting .evilginx directory:", error);
+    return false;
+  }
+}
 
 // Function to check if symlinks are already set up correctly
 function areSymlinksValid() {
@@ -132,6 +253,9 @@ function checkEvilginxFiles() {
 // Function to run the sync script once, not as a background process
 export function startSyncProcess() {
   console.log("Checking file synchronization...");
+
+  // First protect the .evilginx directory to prevent data loss
+  protectEvilginxDirectory();
 
   // Important warning about functionality
   console.log(

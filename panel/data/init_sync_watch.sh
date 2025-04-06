@@ -56,23 +56,13 @@ check_home_evilginx() {
   
   if [[ -d "$HOME/.evilginx" ]]; then
     warning "Found $HOME/.evilginx directory which might be interfering with the workspace version."
+    warning "This could cause conflicts but we will NEVER delete it automatically."
+    warning "If you are experiencing issues, you may need to manually rename or move this directory."
     
-    # Check if running as root - automatically remove without asking
-    if [[ "$EUID" -eq 0 || "$USER" == "root" || "$CURRENT_USER" == "root" ]]; then
-      log "Running as root user, automatically removing $HOME/.evilginx directory..."
-      rm -rf "$HOME/.evilginx"
-      log "Removed $HOME/.evilginx directory."
-    else
-      # For non-root users, ask for confirmation
-      read -p "Do you want to remove it? (y/n): " choice
-      if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
-        log "Removing $HOME/.evilginx directory..."
-        rm -rf "$HOME/.evilginx"
-        log "Removed $HOME/.evilginx directory."
-      else
-        warning "Keeping $HOME/.evilginx - be aware it might cause conflicts."
-      fi
-    fi
+    # Show warning about possible conflicts
+    log "For safety, we will continue using the workspace .evilginx directory located at:"
+    log "  $EVILGINX_DIR"
+    log "The $HOME/.evilginx directory will be left untouched."
   else
     log "No $HOME/.evilginx found. This is good."
   fi

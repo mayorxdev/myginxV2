@@ -1,73 +1,70 @@
 # Panel Data Directory
 
-This directory contains important files for the Myginx panel configuration and functionality.
+This directory contains important scripts and data files for the panel.
 
 ## Important Files
 
-- `init_sync_watch.sh` - Sets up symlinks to existing files in the `.evilginx` directory
-- `create_symlinks_only.sh` - Alternative script that only creates symlinks without any other operations
-- `setup_permissions.sh` - Ensures correct permissions but NEVER creates files in `.evilginx`
-- `initial_setup.sh` - First-time setup script that creates default files in `.evilginx` (run ONCE only)
-- `auth.db` - Local SQLite database for panel authentication (created by the panel)
+- `init_sync_watch.sh` - Creates symlinks to .evilginx files but does not create the files themselves
+- `verify_integrity.sh` - Verifies that all required files exist and creates backups if needed
+- `setup_permissions.sh` - Sets proper permissions on files
+- `initial_setup.sh` - Sets up the .evilginx directory for first-time users (run only once)
+- `protect_evilginx.sh` - Protects against accidental deletion of the .evilginx directory
+
+## Protection System
+
+The protection system consists of several safeguards to ensure your .evilginx data is never lost:
+
+1. **Active Monitoring**: The `protect_evilginx.sh` script creates backups of your .evilginx directory and monitors it for accidental deletion. If the directory is deleted during operation, it will be automatically restored.
+
+2. **Safe Startup**: The `start-safe.sh` script in the panel directory combines verification, symlink setup, and protection to ensure a safe panel startup.
+
+3. **Backup Creation**: The system automatically creates timestamped backups of your configuration before each panel start.
 
 ## File Synchronization Behavior
 
-### IMPORTANT: The panel NEVER creates files in the `.evilginx` directory during normal operation
-
-The synchronization scripts (`init_sync_watch.sh` and `create_symlinks_only.sh`) will:
-
-1. Check if required files exist in the `.evilginx` directory
-2. Create symlinks in the `panel/data` directory pointing to existing files in `.evilginx`
-3. NEVER create any default files in the `.evilginx` directory
-
-## First-Time Setup vs. Normal Operation
-
-- **First-Time Setup**: If you're setting up for the first time, use `initial_setup.sh` to create default files in `.evilginx` directory.
-- **Normal Operation**: After initial setup, the panel will NEVER modify your `.evilginx` files on startup. This ensures your configuration persists.
-
-## Required Files
-
-The following files must exist in the `.evilginx` directory before running the panel:
-
-- `config.json` - Evilginx configuration file
-- `blacklist.txt` - Blacklist configuration
-- `data.db` - Evilginx database file
+**IMPORTANT**: The panel will **never** create or modify files in the `.evilginx` directory during normal operation. It only creates symlinks that point to existing files.
 
 ## Setup Instructions
 
-### For First-Time Setup:
+### First-time Setup
 
-1. Run the initial setup script once to create necessary files:
-   ```
-   cd panel/data
+If you're setting up for the first time:
+
+1. Run the initial setup script:
+   ```bash
+   cd /path/to/myginxV2/panel/data
    ./initial_setup.sh
    ```
 
-2. Start the panel application:
-   ```
-   cd panel
-   npm run dev
+2. Start the panel with protection enabled:
+   ```bash
+   cd /path/to/myginxV2/panel
+   ./start-safe.sh
    ```
 
-### For Existing Installation:
+### Existing Installation
 
-1. Ensure the `.evilginx` directory exists with all required files
-2. Run one of the sync scripts to create the necessary symlinks:
+If you already have an existing .evilginx directory:
+
+1. Start the panel with protection enabled:
+   ```bash
+   cd /path/to/myginxV2/panel
+   ./start-safe.sh
    ```
-   ./create_symlinks_only.sh
-   ```
-   or
-   ```
-   ./init_sync_watch.sh
-   ```
-3. Start the panel application
 
 ## Troubleshooting
 
 If the panel wipes your configuration files on startup:
 
-1. Make sure you haven't modified `setup_permissions.sh` or setup scripts to create files
-2. Verify your startup process isn't running `initial_setup.sh` accidentally
-3. Check that all symlinks in the `panel/data` directory are pointing to the correct files
+1. **Check if directory protection is running**: Make sure `protect_evilginx.sh` is being executed before starting the panel
+2. **Use the safe startup script**: Always use `./start-safe.sh` instead of `npm run dev` directly
+3. **Check your backups**: Look in `.evilginx_backups` directory for recent backups if files were lost
 
-Remember: The panel will never create default files in the `.evilginx` directory during normal operation. If your files are being overwritten, something in your setup is incorrect. 
+## Required Files
+
+The following files must exist in the `.evilginx` directory:
+- `blacklist.txt`
+- `config.json`
+- `data.db`
+
+If these files don't exist, use the `initial_setup.sh` script to create them. 

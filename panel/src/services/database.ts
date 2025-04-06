@@ -122,6 +122,28 @@ export class DatabaseService {
       console.log("Evilginx directory path:", evilginxDir);
       console.log("Panel data directory path:", dataDir);
 
+      // Check if .evilginx exists - NEVER create or delete it
+      if (!fs.existsSync(evilginxDir)) {
+        console.error(
+          "CRITICAL: .evilginx directory does not exist at:",
+          evilginxDir
+        );
+        console.error(
+          "The panel will NOT create this directory automatically."
+        );
+        console.error(
+          "Please run initial_setup.sh or create the directory manually."
+        );
+
+        // Do not attempt to create the directory or its files - just log and continue
+        console.log(
+          "Continuing with limited functionality - symlinks may not work."
+        );
+      } else {
+        console.log(".evilginx directory exists at:", evilginxDir);
+      }
+
+      // Never modify the directory - just set the paths
       // Set source paths (in .evilginx directory in workspace)
       this.sourceConfigPath = path.join(evilginxDir, "config.json");
       this.sourceBlacklistPath = path.join(evilginxDir, "blacklist.txt");
