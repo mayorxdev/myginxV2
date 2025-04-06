@@ -81,9 +81,9 @@ export default async function handler(
       console.log("Waited for quit");
 
       console.log("Restarting evilginx...");
-      // Send the restart command at shell prompt
+      // Simply run the evilginx command without changing directory
       await execAsync(
-        `tmux send-keys -t ginx "cd ${evilginxPath} && ./evilginx3 -feed -g ../gophish/gophish.db" Enter`
+        'tmux send-keys -t ginx "./evilginx3 -feed -g ../gophish/gophish.db" Enter'
       );
       console.log("Sent restart command");
     }
