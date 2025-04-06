@@ -35,6 +35,7 @@ cd data
  chmod +x init_sync_watch.sh
  chmod +x fix_config.sh
  chmod +x verify_config.sh
+ chmod +x find_evilginx.sh
 
 
     # From your myginxV2/panel directory

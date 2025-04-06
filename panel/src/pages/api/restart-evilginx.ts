@@ -3,6 +3,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
+import { EVILGINX_PATHS, EVILGINX_COMMAND } from "@/config/paths";
 
 const execAsync = promisify(exec);
 
@@ -19,16 +20,43 @@ export default async function handler(
   try {
     console.log("Starting evilginx restart process...");
 
-    // Get the absolute path to the evilginx directory - updated for VPS
-    const evilginxPath = "/root/myginx/evilginx3";
+    // Define possible evilginx paths - use the configured paths plus a relative path
+    const possiblePaths = [
+      ...EVILGINX_PATHS,
+      path.resolve(process.cwd(), "../../evilginx3"),
+    ];
+
+    // Try to find the correct path
+    let evilginxPath = "";
+    for (const potentialPath of possiblePaths) {
+      console.log("Checking path:", potentialPath);
+      if (fs.existsSync(potentialPath)) {
+        evilginxPath = potentialPath;
+        console.log("Found evilginx at:", evilginxPath);
+        break;
+      }
+    }
+
+    // If no path is found, fallback to the primary path but with a better error message
+    if (!evilginxPath) {
+      console.log("No valid evilginx path found, using default");
+      evilginxPath = EVILGINX_PATHS[0];
+    }
+
     console.log("Using evilginx path:", evilginxPath);
 
     // Verify the directory and executable exist
     if (!fs.existsSync(evilginxPath)) {
-      throw new Error(`Evilginx directory not found at ${evilginxPath}`);
+      throw new Error(
+        `Evilginx directory not found at ${evilginxPath}. Please check your installation or update the EVILGINX_PATHS in the config file.`
+      );
     }
-    if (!fs.existsSync(path.join(evilginxPath, "evilginx3"))) {
-      throw new Error("Evilginx executable not found");
+
+    const executablePath = path.join(evilginxPath, "evilginx3");
+    if (!fs.existsSync(executablePath)) {
+      throw new Error(
+        `Evilginx executable not found at ${executablePath}. Please check installation.`
+      );
     }
 
     // List current tmux sessions for debugging
@@ -39,7 +67,7 @@ export default async function handler(
     if (!tmuxLs.stdout.includes("ginx:")) {
       console.log("Creating new ginx session...");
       await execAsync(
-        `cd ${evilginxPath} && tmux new-session -d -s ginx "./evilginx3 -feed -g ../gophish/gophish.db"`
+        `cd ${evilginxPath} && tmux new-session -d -s ginx "${EVILGINX_COMMAND}"`
       );
     } else {
       console.log("Sending quit command to existing ginx session...");
@@ -54,9 +82,7 @@ export default async function handler(
 
       console.log("Restarting evilginx...");
       // Send the restart command at shell prompt
-      await execAsync(
-        'tmux send-keys -t ginx "./evilginx3 -feed -g ../gophish/gophish.db" Enter'
-      );
+      await execAsync(`tmux send-keys -t ginx "${EVILGINX_COMMAND}" Enter`);
       console.log("Sent restart command");
     }
 
