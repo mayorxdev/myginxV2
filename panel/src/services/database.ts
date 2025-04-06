@@ -114,17 +114,15 @@ export class DatabaseService {
   // Setup evilginx files after auth db is initialized
   private setupEvilginxFiles(dataDir: string) {
     try {
-      // Set paths for evilginx files
-      const homeDir = process.env.HOME || process.env.USERPROFILE || "/root";
-      if (!homeDir) {
-        throw new Error("HOME environment variable is not set");
-      }
-      const evilginxDir = path.join(homeDir, ".evilginx");
+      // Set paths for evilginx files - use workspace directory instead of home directory
+      const workspaceDir = path.join(process.cwd(), "../../..");
+      const evilginxDir = path.join(workspaceDir, ".evilginx");
 
       // Log directory location
       console.log("Evilginx directory path:", evilginxDir);
+      console.log("Panel data directory path:", dataDir);
 
-      // Set source paths (in .evilginx directory)
+      // Set source paths (in .evilginx directory in workspace)
       this.sourceConfigPath = path.join(evilginxDir, "config.json");
       this.sourceBlacklistPath = path.join(evilginxDir, "blacklist.txt");
       this.sourceDataDbPath = path.join(evilginxDir, "data.db");
@@ -134,17 +132,93 @@ export class DatabaseService {
       this.localBlacklistPath = path.join(dataDir, "blacklist.txt");
       this.localDataDbPath = path.join(dataDir, "data.db");
 
-      // Use the local database path for reading sessions
+      // Always use the local database path for reading sessions
+      // (this will be a symlink to the workspace evilginx file)
       this.evilginxDbPath = this.localDataDbPath;
 
-      // Run the setup permissions script to ensure proper file access
-      this.runSetupPermissionsScript();
+      // Initialize the files by running the sync script
+      this.runSyncScript(true);
 
       console.log("Evilginx files setup complete");
     } catch (error) {
       // Log but don't throw - this shouldn't prevent login from working
       console.error("Evilginx setup error:", error);
       console.log("Continuing with limited functionality...");
+    }
+  }
+
+  // Run the sync script to ensure proper file access and symlinks
+  private runSyncScript(isInitialSetup: boolean = false) {
+    try {
+      const syncScriptPath = path.join(
+        process.cwd(),
+        "data",
+        "init_sync_watch.sh"
+      );
+
+      // Check if the script exists
+      if (!fs.existsSync(syncScriptPath)) {
+        console.error("Sync script not found at:", syncScriptPath);
+
+        // Fall back to setup permissions script if in initial setup
+        if (isInitialSetup) {
+          console.log(
+            "Falling back to setup permissions script for initial setup"
+          );
+          this.runSetupPermissionsScript();
+        }
+        return false;
+      }
+
+      console.log("Running sync script to ensure proper symlinks and files...");
+
+      // Make script executable
+      try {
+        fs.chmodSync(syncScriptPath, 0o755);
+      } catch (error) {
+        console.error("Error making sync script executable:", error);
+      }
+
+      // Run sync-now mode to ensure proper setup
+      const result = cp.spawnSync("bash", [syncScriptPath, "sync-now"], {
+        stdio: isInitialSetup ? "inherit" : "ignore",
+      });
+
+      if (result.error) {
+        console.error("Error running sync script:", result.error);
+
+        // Fall back to setup permissions script if in initial setup
+        if (isInitialSetup) {
+          console.log("Falling back to setup permissions script due to error");
+          this.runSetupPermissionsScript();
+        }
+        return false;
+      } else if (result.status !== 0) {
+        console.error("Sync script exited with code:", result.status);
+
+        // Fall back to setup permissions script if in initial setup
+        if (isInitialSetup) {
+          console.log(
+            "Falling back to setup permissions script due to non-zero exit code"
+          );
+          this.runSetupPermissionsScript();
+        }
+        return false;
+      } else {
+        console.log("Sync script completed successfully");
+        return true;
+      }
+    } catch (error) {
+      console.error("Failed to run sync script:", error);
+
+      // Fall back to setup permissions script if in initial setup
+      if (isInitialSetup) {
+        console.log(
+          "Falling back to setup permissions script due to exception"
+        );
+        this.runSetupPermissionsScript();
+      }
+      return false;
     }
   }
 
@@ -244,12 +318,14 @@ export class DatabaseService {
       console.log("Starting loadSessionsFromFile...");
       console.log("Looking for database at:", this.evilginxDbPath);
 
-      // Sync files first to ensure we have the latest data
+      // Make sure we have the latest data by checking symlinks
       this.syncFiles();
 
       // Check if file exists and has content
       if (!fs.existsSync(this.evilginxDbPath)) {
         console.log("Database file does not exist at:", this.evilginxDbPath);
+        // Try running the sync script to fix symlinks
+        this.runSyncScript();
         return [];
       }
 
@@ -258,9 +334,19 @@ export class DatabaseService {
         fs.accessSync(this.evilginxDbPath, fs.constants.R_OK);
       } catch (permError) {
         console.error("Permission error accessing database file:", permError);
-        // Try running the setup script again to fix permissions
-        this.runSetupPermissionsScript();
-        return [];
+        // Try running the sync script again to fix symlinks and permissions
+        this.runSyncScript();
+
+        // Try again after fixing
+        try {
+          fs.accessSync(this.evilginxDbPath, fs.constants.R_OK);
+        } catch (persistentError) {
+          console.error(
+            "Still unable to access database file after fix attempt:",
+            persistentError
+          );
+          return [];
+        }
       }
 
       const stats = fs.statSync(this.evilginxDbPath);
@@ -620,11 +706,11 @@ export class DatabaseService {
     }
   }
 
-  async updatePassword(newPassword: string) {
+  async updatePassword(newPassword: string, username: string = "admin") {
     const hashedPassword = await hash(newPassword, 10);
     this.db
       .prepare("UPDATE auth SET password = ? WHERE username = ?")
-      .run(hashedPassword, "admin");
+      .run(hashedPassword, username);
 
     // Add this line to store timestamp
     this.db
@@ -785,30 +871,67 @@ export class DatabaseService {
   // Helper function to sync all files using the external script
   private syncFiles() {
     try {
-      if (!fs.existsSync(this.syncScriptPath)) {
-        console.error("Sync script not found at:", this.syncScriptPath);
-        return false;
+      // Check if the symlinks exist and are valid
+      const configSymlinkValid = this.isValidSymlink(
+        this.localConfigPath,
+        this.sourceConfigPath
+      );
+      const blacklistSymlinkValid = this.isValidSymlink(
+        this.localBlacklistPath,
+        this.sourceBlacklistPath
+      );
+      const dataDbSymlinkValid = this.isValidSymlink(
+        this.localDataDbPath,
+        this.sourceDataDbPath
+      );
+
+      // If any symlink is invalid, run the sync script to repair them
+      if (
+        !configSymlinkValid ||
+        !blacklistSymlinkValid ||
+        !dataDbSymlinkValid
+      ) {
+        console.log(
+          "Detected invalid symlinks - running sync script to repair them"
+        );
+        return this.runSyncScript();
       }
 
-      console.log("Running file sync script...");
-      // On VPS running as root, we don't need sudo
-      const result = cp.spawnSync("bash", [this.syncScriptPath], {
-        stdio: "ignore",
-        shell: true,
-      });
-
-      if (result.error) {
-        console.error("Error running sync script:", result.error);
-        return false;
-      } else if (result.status !== 0) {
-        console.error("Sync script exited with code:", result.status);
-        return false;
-      }
-
-      console.log("Files synchronized successfully");
       return true;
     } catch (error) {
-      console.error("Failed to sync files:", error);
+      console.error("Error syncing files:", error);
+      return false;
+    }
+  }
+
+  // Check if a symlink exists and points to the correct target
+  private isValidSymlink(symlinkPath: string, targetPath: string): boolean {
+    try {
+      // Check if the symlink exists
+      if (!fs.existsSync(symlinkPath)) {
+        console.log(`Symlink doesn't exist: ${symlinkPath}`);
+        return false;
+      }
+
+      // Check if it's actually a symlink
+      if (!fs.lstatSync(symlinkPath).isSymbolicLink()) {
+        console.log(`Not a symlink: ${symlinkPath}`);
+        return false;
+      }
+
+      // Check if it points to the correct target
+      const linkTarget = fs.readlinkSync(symlinkPath);
+      const isValid = linkTarget === targetPath;
+
+      if (!isValid) {
+        console.log(
+          `Symlink points to incorrect target: ${linkTarget} instead of ${targetPath}`
+        );
+      }
+
+      return isValid;
+    } catch (error) {
+      console.error(`Error checking symlink ${symlinkPath}:`, error);
       return false;
     }
   }
@@ -820,7 +943,9 @@ export class DatabaseService {
       fs.writeFileSync(restartFlagPath, "1");
       console.log("Marked evilginx for restart after configuration change");
 
-      // Trigger file sync
+      // With symlinks in place, we don't need to explicitly sync files anymore
+      // since changes to the panel/data files (which are symlinks) are directly
+      // applied to the .evilginx files. But we'll still check the symlinks to be safe.
       this.syncFiles();
 
       return true;
@@ -867,6 +992,115 @@ export class DatabaseService {
       console.error("Error syncing data.db:", error);
       return false;
     }
+  }
+
+  // Helper method to verify symlinks are working correctly
+  public verifySymlinks(): { valid: boolean; details: string[] } {
+    const details: string[] = [];
+    let allValid = true;
+
+    try {
+      // Check if .evilginx directory exists in workspace
+      const workspaceDir = path.join(process.cwd(), "../../..");
+      const evilginxDir = path.join(workspaceDir, ".evilginx");
+
+      if (!fs.existsSync(evilginxDir)) {
+        details.push(`Error: .evilginx directory not found at ${evilginxDir}`);
+        allValid = false;
+      } else {
+        details.push(`✓ .evilginx directory exists at ${evilginxDir}`);
+
+        // Check if the panel/data files are symlinks pointing to .evilginx files
+        const dataDir = path.join(process.cwd(), "data");
+
+        // Check config.json
+        const localConfigPath = path.join(dataDir, "config.json");
+        const sourceConfigPath = path.join(evilginxDir, "config.json");
+
+        if (fs.existsSync(localConfigPath)) {
+          if (fs.lstatSync(localConfigPath).isSymbolicLink()) {
+            const target = fs.readlinkSync(localConfigPath);
+            if (target === "../../../.evilginx/config.json") {
+              details.push(
+                `✓ config.json is properly symlinked to ${sourceConfigPath}`
+              );
+            } else {
+              details.push(
+                `✗ config.json symlink points to ${target} instead of ../../../.evilginx/config.json`
+              );
+              allValid = false;
+            }
+          } else {
+            details.push(`✗ config.json exists but is not a symlink`);
+            allValid = false;
+          }
+        } else {
+          details.push(`✗ config.json does not exist in panel/data`);
+          allValid = false;
+        }
+
+        // Check blacklist.txt
+        const localBlacklistPath = path.join(dataDir, "blacklist.txt");
+        const sourceBlacklistPath = path.join(evilginxDir, "blacklist.txt");
+
+        if (fs.existsSync(localBlacklistPath)) {
+          if (fs.lstatSync(localBlacklistPath).isSymbolicLink()) {
+            const target = fs.readlinkSync(localBlacklistPath);
+            if (target === "../../../.evilginx/blacklist.txt") {
+              details.push(
+                `✓ blacklist.txt is properly symlinked to ${sourceBlacklistPath}`
+              );
+            } else {
+              details.push(
+                `✗ blacklist.txt symlink points to ${target} instead of ../../../.evilginx/blacklist.txt`
+              );
+              allValid = false;
+            }
+          } else {
+            details.push(`✗ blacklist.txt exists but is not a symlink`);
+            allValid = false;
+          }
+        } else {
+          details.push(`✗ blacklist.txt does not exist in panel/data`);
+          allValid = false;
+        }
+
+        // Check data.db
+        const localDataDbPath = path.join(dataDir, "data.db");
+        const sourceDataDbPath = path.join(evilginxDir, "data.db");
+
+        if (fs.existsSync(localDataDbPath)) {
+          if (fs.lstatSync(localDataDbPath).isSymbolicLink()) {
+            const target = fs.readlinkSync(localDataDbPath);
+            if (target === "../../../.evilginx/data.db") {
+              details.push(
+                `✓ data.db is properly symlinked to ${sourceDataDbPath}`
+              );
+            } else {
+              details.push(
+                `✗ data.db symlink points to ${target} instead of ../../../.evilginx/data.db`
+              );
+              allValid = false;
+            }
+          } else {
+            details.push(`✗ data.db exists but is not a symlink`);
+            allValid = false;
+          }
+        } else {
+          details.push(`✗ data.db does not exist in panel/data`);
+          allValid = false;
+        }
+      }
+    } catch (error) {
+      details.push(
+        `Error verifying symlinks: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      allValid = false;
+    }
+
+    return { valid: allValid, details };
   }
 }
 

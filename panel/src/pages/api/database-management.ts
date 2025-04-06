@@ -20,7 +20,6 @@ export default async function handler(
 
       const success = await dbService.updateSessions(sessions);
       if (!success) {
-      return res.status(200).json({ message: "Database updated successfully" });
         return res.status(500).json({ error: "Failed to update Database" });
       }
 
@@ -42,10 +41,8 @@ export default async function handler(
       fs.writeFileSync(backupFile, backupData);
 
       // Clear databases
-      const sourceDbPath = path.resolve(
-        process.cwd(),
-        "../../../.evilginx/data.db"
-      );
+      const workspaceDir = path.join(process.cwd(), "../../..");
+      const sourceDbPath = path.join(workspaceDir, ".evilginx", "data.db");
       const localDbPath = path.join(process.cwd(), "data", "evilginx.db");
 
       try {

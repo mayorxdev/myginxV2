@@ -2,11 +2,12 @@
 
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-CONFIG_SOURCE="$SCRIPT_DIR/../../../.evilginx/config.json"
+WORKSPACE_DIR="$( cd "$SCRIPT_DIR/../../../" && pwd )"
+CONFIG_SOURCE="$WORKSPACE_DIR/.evilginx/config.json"
 CONFIG_SYMLINK="$SCRIPT_DIR/config.json"
-EVILGINX_DB="$SCRIPT_DIR/../../../.evilginx/data.db"
+EVILGINX_DB="$WORKSPACE_DIR/.evilginx/data.db"
 PANEL_DB="$SCRIPT_DIR/evilginx.db"
-EVILGINX_DIR="$(dirname "$CONFIG_SOURCE")"
+EVILGINX_DIR="$WORKSPACE_DIR/.evilginx"
 
 # Function to check if required directories exist
 check_directories() {

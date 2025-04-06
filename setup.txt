@@ -14,14 +14,28 @@ chmod u+x setup.sh && chmod u+x replace_rid.sh
 
 CD EVILGINX
 
-./evilginx2 -feed -g ../gophish/gophish.db -turnstile <PUBLIC_KEY>:<PRIVATE_KEY>
+./evilginx3 -feed -g ../gophish/gophish.db -turnstile <PUBLIC_KEY>:<PRIVATE_KEY>
 
+
+apt install dnsutils -y
+
+dig portsec.cam
+
+curl ipconfig.io portsec.cam
 
 
 CD Panel
 
- chmod +x /root/myginx/panel/data/setup_permissions.sh
+apt install nodejs && npm
 
+cd data
+ chmod +x setup_permissions.sh
+ chmod +x config_monitor.sh
+ chmod +x sync_files.sh
+ chmod +x init_sync_watch.sh
+
+
+cd ..
  npm install --legacy-peer-deps
 
 npm run dev

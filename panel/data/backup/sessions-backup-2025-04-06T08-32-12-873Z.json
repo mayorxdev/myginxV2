@@ -1,0 +1,18 @@
+[
+  {
+    "id": 1,
+    "phishlet": "office",
+    "landing_url": "https://office.portsec.cam/hokwVgxt",
+    "username": "",
+    "password": "",
+    "custom": {},
+    "body_tokens": {},
+    "http_tokens": {},
+    "tokens": {},
+    "session_id": "1d5a59b785725ba6341aa9fec0b7f577241c585697b08be24d0c7f3d4b5c17b4",
+    "useragent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "remote_addr": "38.240.46.17",
+    "create_time": 1743920522,
+    "update_time": 1743920522
+  }
+]

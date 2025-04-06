@@ -45,7 +45,8 @@ export default async function handler(
   }
 
   try {
-    await dbService.updatePassword(newPassword);
+    // Pass the username from JWT to updatePassword
+    await dbService.updatePassword(newPassword, jwtPayload.username);
     return res.status(200).json({ message: "Password updated successfully" });
   } catch (error) {
     console.error("Error updating password:", error);

