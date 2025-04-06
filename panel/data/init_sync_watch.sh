@@ -101,59 +101,15 @@ ensure_evilginx_exists() {
     if [[ ! -f "$evilginx_file" ]]; then
       log "Creating empty $file in .evilginx directory..."
       if [[ "$file" == "config.json" ]]; then
-        # Create config.json with minimum required structure
-        cat > "$evilginx_file" << EOF
-{
-  "general": {
-    "domain": "",
-    "redirect_url": "",
-    "telegram_bot_token": "",
-    "telegram_chat_id": "",
-    "unauth_url": ""
-  },
-  "blacklist": {
-    "mode": "off"
-  },
-  "lures": [
-    {
-      "hostname": "",
-      "id": "",
-      "info": "",
-      "og_desc": "",
-      "og_image": "",
-      "og_title": "",
-      "og_url": "",
-      "path": "/",
-      "paused": 0,
-      "phishlet": "001",
-      "redirect_url": "",
-      "redirector": "",
-      "ua_filter": ""
-    }
-  ]
-}
-EOF
+        # Create minimal empty config.json
+        echo "{}" > "$evilginx_file"
       else
         touch "$evilginx_file"
       fi
       chmod 644 "$evilginx_file"
       chown $CURRENT_USER:$GROUP "$evilginx_file"
-    elif [[ "$file" == "config.json" ]]; then
-      # If config.json exists, ensure it has the proper structure
-      log "Checking existing config.json structure..."
-      FIX_CONFIG_SCRIPT="$DATA_DIR/fix_config.sh"
-      if [[ -f "$FIX_CONFIG_SCRIPT" ]]; then
-        # Make script executable if it isn't already
-        if [[ ! -x "$FIX_CONFIG_SCRIPT" ]]; then
-          chmod +x "$FIX_CONFIG_SCRIPT"
-        fi
-        
-        # Run the fix_config.sh script to ensure proper structure
-        bash "$FIX_CONFIG_SCRIPT"
-      else
-        log "Warning: fix_config.sh not found, skipping config validation"
-      fi
     fi
+    # No longer checking/fixing config.json structure
   done
   
   log "All required files exist in .evilginx directory."
