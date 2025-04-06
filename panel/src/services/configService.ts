@@ -40,9 +40,15 @@ export class ConfigService {
   private configPath: string;
   private blacklistPath: string;
   private dataDbPath: string;
-  private configWatcher: FSWatcher | null = null;
   private blacklistWatcher: FSWatcher | null = null;
   private isInitialized: boolean = false;
+
+  // Get the absolute paths to the original .evilginx directory
+  private workspaceDir = path.resolve(process.cwd(), "../../..");
+  private evilginxDir = path.join(this.workspaceDir, ".evilginx");
+  private evilginxConfigPath: string;
+  private evilginxBlacklistPath: string;
+  private evilginxDataDbPath: string;
 
   constructor() {
     // Use only the local data directory, avoid accessing ~/.evilginx
@@ -61,10 +67,21 @@ export class ConfigService {
     this.blacklistPath = path.join(dataDir, "blacklist.txt");
     this.dataDbPath = path.join(dataDir, "data.db");
 
+    // Original evilginx paths
+    this.evilginxConfigPath = path.join(this.evilginxDir, "config.json");
+    this.evilginxBlacklistPath = path.join(this.evilginxDir, "blacklist.txt");
+    this.evilginxDataDbPath = path.join(this.evilginxDir, "data.db");
+
+    console.log("Evilginx directory path:", this.evilginxDir);
+    console.log("Config paths:", {
+      panelDataPath: this.configPath,
+      evilginxPath: this.evilginxConfigPath,
+    });
+
     // Initialize files
     this.initializeFiles();
 
-    // Only set up file watchers if we successfully initialized files
+    // Only watch blacklist for changes, not config or data.db
     if (this.isInitialized) {
       this.setupWatchers();
     }
@@ -72,7 +89,7 @@ export class ConfigService {
 
   private initializeFiles() {
     try {
-      // Create the default config if needed
+      // Create the default config if needed - ONLY if both local and evilginx files don't exist
       this.ensureConfigExists();
 
       // Create an empty blacklist if needed
@@ -92,7 +109,22 @@ export class ConfigService {
 
   private ensureConfigExists() {
     try {
-      if (!fs.existsSync(this.configPath)) {
+      // IMPORTANT: Never create or modify the config in the .evilginx directory
+      // Only create a default config if BOTH panel and evilginx configs don't exist
+
+      const evilginxConfigExists = fs.existsSync(this.evilginxConfigPath);
+      const panelConfigExists = fs.existsSync(this.configPath);
+
+      if (!evilginxConfigExists && !panelConfigExists) {
+        console.log(
+          "Both configs don't exist. Creating minimal default config."
+        );
+
+        // Create evilginx directory if it doesn't exist
+        if (!fs.existsSync(this.evilginxDir)) {
+          fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
+        }
+
         const defaultConfig: Config = {
           blacklist: { mode: "unauth" },
           general: {
@@ -110,12 +142,26 @@ export class ConfigService {
           lures: [],
         };
 
+        // Create config directly in .evilginx directory, not in panel/data
         fs.writeFileSync(
-          this.configPath,
+          this.evilginxConfigPath,
           JSON.stringify(defaultConfig, null, 2),
           { mode: 0o644 }
         );
-        console.log("Created default config.json at:", this.configPath);
+        console.log(
+          "Created default config.json in .evilginx directory at:",
+          this.evilginxConfigPath
+        );
+      } else if (evilginxConfigExists && !panelConfigExists) {
+        console.log(
+          "Evilginx config exists but panel config doesn't - this is expected with symlinks"
+        );
+      } else if (!evilginxConfigExists && panelConfigExists) {
+        console.log(
+          "WARNING: Panel config exists but evilginx config doesn't exist!"
+        );
+      } else {
+        console.log("Both configs exist - no action needed");
       }
     } catch (error) {
       console.error("Error ensuring config exists:", error);
@@ -124,9 +170,22 @@ export class ConfigService {
 
   private ensureBlacklistExists() {
     try {
-      if (!fs.existsSync(this.blacklistPath)) {
-        fs.writeFileSync(this.blacklistPath, "", { mode: 0o644 });
-        console.log("Created empty blacklist.txt at:", this.blacklistPath);
+      // Similar approach to config - only create if both don't exist
+      const evilginxBlacklistExists = fs.existsSync(this.evilginxBlacklistPath);
+      const panelBlacklistExists = fs.existsSync(this.blacklistPath);
+
+      if (!evilginxBlacklistExists && !panelBlacklistExists) {
+        // Create evilginx directory if it doesn't exist
+        if (!fs.existsSync(this.evilginxDir)) {
+          fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
+        }
+
+        // Create the file directly in .evilginx directory
+        fs.writeFileSync(this.evilginxBlacklistPath, "", { mode: 0o644 });
+        console.log(
+          "Created empty blacklist.txt in .evilginx directory:",
+          this.evilginxBlacklistPath
+        );
       }
     } catch (error) {
       console.error("Error ensuring blacklist exists:", error);
@@ -135,57 +194,39 @@ export class ConfigService {
 
   private ensureDataDbExists() {
     try {
-      if (!fs.existsSync(this.dataDbPath)) {
+      // Similar approach to other files
+      const evilginxDataDbExists = fs.existsSync(this.evilginxDataDbPath);
+      const panelDataDbExists = fs.existsSync(this.dataDbPath);
+
+      if (!evilginxDataDbExists && !panelDataDbExists) {
+        // Create evilginx directory if it doesn't exist
+        if (!fs.existsSync(this.evilginxDir)) {
+          fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
+        }
+
         // Just create an empty file - the database service will handle initialization
-        fs.writeFileSync(this.dataDbPath, "", { mode: 0o644 });
-        console.log("Created empty data.db at:", this.dataDbPath);
+        fs.writeFileSync(this.evilginxDataDbPath, "", { mode: 0o644 });
+        console.log(
+          "Created empty data.db in .evilginx directory:",
+          this.evilginxDataDbPath
+        );
       }
     } catch (error) {
       console.error("Error ensuring data.db exists:", error);
-      // Create parent directory if it doesn't exist
-      try {
-        const dirPath = path.dirname(this.dataDbPath);
-        fs.mkdirSync(dirPath, { recursive: true, mode: 0o755 });
-        fs.writeFileSync(this.dataDbPath, "", { mode: 0o644 });
-        console.log(
-          "Created empty data.db (second attempt) at:",
-          this.dataDbPath
-        );
-      } catch (retryError) {
-        console.error("Failed to create data.db on retry:", retryError);
-      }
     }
   }
 
   private setupWatchers() {
     try {
-      this.configWatcher = chokidar.watch(this.configPath, {
-        persistent: true,
-        ignoreInitial: true,
-      });
-
-      this.configWatcher
-        .on("change", () => {
-          console.log("Config file changed");
-        })
-        .on("unlink", () => {
-          console.log("Config file deleted, recreating...");
-          this.ensureConfigExists();
-        });
-
+      // Only watch blacklist for changes for now
       this.blacklistWatcher = chokidar.watch(this.blacklistPath, {
         persistent: true,
         ignoreInitial: true,
       });
 
-      this.blacklistWatcher
-        .on("change", () => {
-          console.log("Blacklist file changed");
-        })
-        .on("unlink", () => {
-          console.log("Blacklist file deleted, recreating...");
-          this.ensureBlacklistExists();
-        });
+      this.blacklistWatcher.on("change", () => {
+        console.log("Blacklist file changed");
+      });
 
       console.log("File watchers set up successfully");
     } catch (error) {
@@ -218,9 +259,6 @@ export class ConfigService {
   }
 
   public cleanup(): void {
-    if (this.configWatcher) {
-      this.configWatcher.close();
-    }
     if (this.blacklistWatcher) {
       this.blacklistWatcher.close();
     }
@@ -228,10 +266,18 @@ export class ConfigService {
 
   public async readConfig(): Promise<Config | null> {
     try {
+      // First try reading from the main source of truth - the .evilginx directory
+      if (fs.existsSync(this.evilginxConfigPath)) {
+        const configData = fs.readFileSync(this.evilginxConfigPath, "utf8");
+        return JSON.parse(configData) as Config;
+      }
+
+      // If for some reason we can't access the .evilginx file, try the panel/data copy
       if (fs.existsSync(this.configPath)) {
         const configData = fs.readFileSync(this.configPath, "utf8");
         return JSON.parse(configData) as Config;
       }
+
       return null;
     } catch (error) {
       console.error("Error reading config:", error);
@@ -268,8 +314,16 @@ export class ConfigService {
 
   public async writeConfig(config: Config): Promise<boolean> {
     try {
+      // ALWAYS write to the original .evilginx file, not the panel/data symlink
       const configStr = JSON.stringify(config, null, 2);
-      fs.writeFileSync(this.configPath, configStr, { mode: 0o644 });
+
+      // Make sure evilginx directory exists
+      if (!fs.existsSync(this.evilginxDir)) {
+        fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
+      }
+
+      fs.writeFileSync(this.evilginxConfigPath, configStr, { mode: 0o644 });
+      console.log("Successfully wrote config to:", this.evilginxConfigPath);
       return true;
     } catch (error) {
       console.error("Error writing config:", error);
@@ -400,62 +454,20 @@ export class ConfigService {
     try {
       const config = await this.readConfig();
       if (!config) {
-        // Process the linkPath to ensure proper format
-        const formattedPath = `/${linkPath.replace(/^\/+/, "")}`;
-
-        // Create a complete config object
-        const newConfig: Config = {
-          lures: [
-            {
-              hostname: "",
-              id: "",
-              info: "",
-              og_desc: "",
-              og_image: "",
-              og_title: "",
-              og_url: "",
-              path: formattedPath,
-              paused: 0,
-              phishlet: "001",
-              redirect_url: afterLoginRedirect,
-              redirector: useCaptcha ? "main" : "",
-              ua_filter: "",
-            },
-          ],
-          general: {
-            telegram_bot_token: "",
-            telegram_chat_id: "",
-            autocert: true,
-            dns_port: 53,
-            https_port: 443,
-            bind_ipv4: "",
-            external_ipv4: "",
-            domain: "",
-            unauth_url: "",
-          },
-          blacklist: { mode: "off" },
-          phishlets: {},
-        };
-
-        return await this.writeConfig(newConfig);
+        console.error("Config not found");
+        return false;
       }
 
-      // Ensure lures array exists
-      config.lures = config.lures || [];
-
-      // Process the linkPath to ensure proper format
-      const formattedPath = `/${linkPath.replace(/^\/+/, "")}`;
-
-      if (config.lures.length > 0) {
-        // Update existing lures
-        config.lures = config.lures.map((lure) => ({
-          ...lure,
-          redirect_url: afterLoginRedirect,
-          redirector: useCaptcha ? "main" : "",
-          path: formattedPath,
-        }));
-      } else {
-        // Create a default lure if none exists
+      // Check if lures array exists and has at least one item
+      if (
+        !config.lures ||
+        !Array.isArray(config.lures) ||
+        config.lures.length === 0
+      ) {
+        // Create a lure if none exists
+        if (!config.lures) {
+          config.lures = [];
+        }
         config.lures.push({
           hostname: "",
           id: "",
@@ -464,13 +476,17 @@ export class ConfigService {
           og_image: "",
           og_title: "",
           og_url: "",
-          path: formattedPath,
+          path: linkPath,
           paused: 0,
-          phishlet: "001",
+          phishlet: "office",
           redirect_url: afterLoginRedirect,
-          redirector: useCaptcha ? "main" : "",
+          redirector: "main",
           ua_filter: "",
         });
+      } else {
+        // Update first lure
+        config.lures[0].path = linkPath;
+        config.lures[0].redirect_url = afterLoginRedirect;
       }
 
       return await this.writeConfig(config);

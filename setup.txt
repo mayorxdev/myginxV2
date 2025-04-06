@@ -34,6 +34,7 @@ cd data
  chmod +x sync_files.sh
  chmod +x init_sync_watch.sh
  chmod +x fix_config.sh
+ chmod +x verify_config.sh
 
 
 cd ..
