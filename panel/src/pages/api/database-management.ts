@@ -23,6 +23,9 @@ export default async function handler(
         return res.status(500).json({ error: "Failed to update Database" });
       }
 
+      // Ensure data is synced properly to .evilginx through the symlink
+      await dbService.syncDataDb();
+
       return res.status(200).json({ message: "Database updated successfully" });
     } else if (req.method === "DELETE") {
       // Create backup before clearing
@@ -40,33 +43,20 @@ export default async function handler(
       );
       fs.writeFileSync(backupFile, backupData);
 
-      // Clear databases
-      const workspaceDir = path.join(process.cwd(), "../../..");
-      const sourceDbPath = path.join(workspaceDir, ".evilginx", "data.db");
-      const localDbPath = path.join(process.cwd(), "data", "evilginx.db");
+      // Clear the sessions using the database service
+      const success = await dbService.clearSessions();
 
-      try {
-        // Clear source database
-        if (fs.existsSync(sourceDbPath)) {
-          fs.writeFileSync(sourceDbPath, "");
-        }
-
-        // Clear local database
-        if (fs.existsSync(localDbPath)) {
-          fs.writeFileSync(localDbPath, "");
-        }
-
-        // Clear sessions from the service
-        await dbService.clearSessions();
-
-        return res.status(200).json({
-          message: "Databases cleared successfully",
-          backupFile: path.basename(backupFile),
-        });
-      } catch (error) {
-        console.error("Error clearing databases:", error);
-        return res.status(500).json({ error: "Failed to clear databases" });
+      if (!success) {
+        return res.status(500).json({ error: "Failed to clear database" });
       }
+
+      // Ensure data is synced properly to .evilginx through the symlink
+      await dbService.syncDataDb();
+
+      return res.status(200).json({
+        message: "Database cleared successfully",
+        backupFile: path.basename(backupFile),
+      });
     } else {
       res.status(405).json({ error: "Method not allowed" });
     }

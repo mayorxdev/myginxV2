@@ -321,7 +321,9 @@ export default function Settings() {
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
 
-      toast.success("Database cleared successfully");
+      toast.success(
+        "Database cleared successfully. Changes applied to .evilginx data.db"
+      );
     } catch (error) {
       console.error("Error clearing database:", error);
       toast.error("Failed to clear database");
@@ -385,7 +387,9 @@ export default function Settings() {
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
 
-      toast.success("Sessions updated successfully");
+      toast.success(
+        "Sessions updated successfully. Changes applied to .evilginx data.db"
+      );
     } catch (error) {
       console.error("Error updating sessions:", error);
       toast.error("Failed to update sessions");
@@ -673,6 +677,12 @@ export default function Settings() {
         <section className="bg-[#232A34] rounded-lg p-6">
           <h2 className="text-white text-xl mb-4">Database Management</h2>
           <div className="space-y-4">
+            <p className="text-gray-400 text-sm mb-4">
+              All changes to the database are automatically synchronized with
+              the .evilginx directory through symlinks. When you edit or clear
+              the database, the changes will be applied to both the
+              panel/data/data.db and .evilginx/data.db files.
+            </p>
             <div className="flex items-center space-x-4 mb-4">
               <button
                 onClick={handleRefreshSessions}
