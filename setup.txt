@@ -37,6 +37,13 @@ cd data
  chmod +x verify_config.sh
 
 
+    # From your myginxV2/panel directory
+   chmod 755 data
+   chmod 644 data/config.json
+   chmod 644 data/blacklist.txt
+   chmod 644 data/data.db
+
+
 cd ..
  npm install --legacy-peer-deps
 

