@@ -6,7 +6,7 @@ export default function Tutorial() {
       title: "Getting Started",
       description: "Learn how to set up and configure your environment.",
       videoUrl:
-        "https://drive.google.com/file/d/13RgmmC3EXgIm3B8gE-_QDwr5ApJ1TEO_/preview",
+        "https://drive.google.com/file/d/1tVWqADlIKPkhlZZg2hbiWYjE9KIgBoqV/preview",
       // },
       // {
       //   title: "Basic Configuration",
