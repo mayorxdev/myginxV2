@@ -15,9 +15,13 @@ export default async function handler(
         });
       }
 
+      // Add null checks for all nested properties
+      const blacklist = config.blacklist || {};
+      const general = config.general || {};
+
       return res.status(200).json({
-        blockBots: config.blacklist.mode === "unauth",
-        redirectUrl: config.general.unauth_url,
+        blockBots: blacklist.mode === "unauth",
+        redirectUrl: general.unauth_url || "https://example.com",
       });
     } else if (req.method === "POST") {
       const { blockBots, redirectUrl } = req.body;

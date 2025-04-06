@@ -921,11 +921,17 @@ export class DatabaseService {
 
       // Check if it points to the correct target
       const linkTarget = fs.readlinkSync(symlinkPath);
-      const isValid = linkTarget === targetPath;
+
+      // Allow both absolute path and relative "../../../.evilginx/" format
+      const fileName = path.basename(targetPath);
+      const isValid =
+        linkTarget === targetPath ||
+        linkTarget === `../../../.evilginx/${fileName}` ||
+        linkTarget === `/.evilginx/${fileName}`;
 
       if (!isValid) {
         console.log(
-          `Symlink points to incorrect target: ${linkTarget} instead of ${targetPath}`
+          `Symlink points to incorrect target: ${linkTarget} instead of ${targetPath} or ../../../.evilginx/${fileName}`
         );
       }
 

@@ -16,8 +16,10 @@ export default async function handler(
         });
       }
 
+      // Add null check for lures array
+      const lures = config.lures || [];
       // Get values from the first lure, or return defaults
-      const lure = config.lures[0] || {};
+      const lure = lures[0] || {};
       return res.status(200).json({
         afterLoginRedirect: lure.redirect_url || "",
         useCaptcha: lure.redirector === "main",

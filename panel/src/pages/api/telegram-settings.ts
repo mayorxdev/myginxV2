@@ -12,9 +12,12 @@ export default async function handler(
         return res.status(200).json({ bot_token: "", chat_id: "" });
       }
 
+      // Add null check for general property
+      const general = config.general || {};
+
       return res.status(200).json({
-        bot_token: config.general.telegram_bot_token,
-        chat_id: config.general.telegram_chat_id,
+        bot_token: general.telegram_bot_token || "",
+        chat_id: general.telegram_chat_id || "",
       });
     } else if (req.method === "POST") {
       const { bot_token, chat_id } = req.body;
