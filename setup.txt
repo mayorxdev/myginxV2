@@ -36,6 +36,12 @@ cd data
  chmod +x fix_config.sh
  chmod +x verify_config.sh
  chmod +x find_evilginx.sh
+ chmod +x initial_setup.sh
+ chmod +x verify_integrity.sh
+ chmod +x initial_setup.sh
+
+
+ ./initial_setup.sh
 
 
     # From your myginxV2/panel directory

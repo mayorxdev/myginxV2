@@ -160,12 +160,14 @@ export class DatabaseService {
       if (!fs.existsSync(syncScriptPath)) {
         console.error("Sync script not found at:", syncScriptPath);
 
-        // Fall back to setup permissions script if in initial setup
+        // DO NOT fall back to setup permissions script - it will create default files
         if (isInitialSetup) {
-          console.log(
-            "Falling back to setup permissions script for initial setup"
+          console.error(
+            "IMPORTANT: The panel expects existing files in the .evilginx directory."
           );
-          this.runSetupPermissionsScript();
+          console.error(
+            "Please ensure config.json, blacklist.txt, and data.db exist in the .evilginx directory."
+          );
         }
         return false;
       }
@@ -187,21 +189,27 @@ export class DatabaseService {
       if (result.error) {
         console.error("Error running sync script:", result.error);
 
-        // Fall back to setup permissions script if in initial setup
+        // DO NOT fall back to setup permissions script - it will create default files
         if (isInitialSetup) {
-          console.log("Falling back to setup permissions script due to error");
-          this.runSetupPermissionsScript();
+          console.error(
+            "IMPORTANT: The panel expects existing files in the .evilginx directory."
+          );
+          console.error(
+            "Please ensure config.json, blacklist.txt, and data.db exist in the .evilginx directory."
+          );
         }
         return false;
       } else if (result.status !== 0) {
         console.error("Sync script exited with code:", result.status);
 
-        // Fall back to setup permissions script if in initial setup
+        // DO NOT fall back to setup permissions script - it will create default files
         if (isInitialSetup) {
-          console.log(
-            "Falling back to setup permissions script due to non-zero exit code"
+          console.error(
+            "IMPORTANT: The panel expects existing files in the .evilginx directory."
           );
-          this.runSetupPermissionsScript();
+          console.error(
+            "Please ensure config.json, blacklist.txt, and data.db exist in the .evilginx directory."
+          );
         }
         return false;
       } else {
@@ -211,49 +219,39 @@ export class DatabaseService {
     } catch (error) {
       console.error("Failed to run sync script:", error);
 
-      // Fall back to setup permissions script if in initial setup
+      // DO NOT fall back to setup permissions script - it will create default files
       if (isInitialSetup) {
-        console.log(
-          "Falling back to setup permissions script due to exception"
+        console.error(
+          "IMPORTANT: The panel expects existing files in the .evilginx directory."
         );
-        this.runSetupPermissionsScript();
+        console.error(
+          "Please ensure config.json, blacklist.txt, and data.db exist in the .evilginx directory."
+        );
       }
       return false;
     }
   }
 
-  // Run the setup permissions script to ensure proper file access
+  // Replace the runSetupPermissionsScript to prevent it from creating default files
   private runSetupPermissionsScript() {
     try {
-      const setupScript = path.join(
-        process.cwd(),
-        "data",
-        "setup_permissions.sh"
+      console.error(
+        "NOTICE: The panel requires existing files in the .evilginx directory"
       );
+      console.error(
+        "It will NEVER create these files automatically. Please ensure:"
+      );
+      console.error("1. The .evilginx directory exists in the workspace");
+      console.error(
+        "2. config.json, blacklist.txt, and data.db exist in .evilginx"
+      );
+      console.error("3. Run the init_sync_watch.sh script to create symlinks");
 
-      // Check if the script exists
-      if (!fs.existsSync(setupScript)) {
-        console.error("Setup permissions script not found at:", setupScript);
-        return;
-      }
-
-      console.log("Running setup permissions script...");
-
-      // On VPS running as root, we don't need sudo
-      const result = cp.spawnSync("bash", [setupScript], {
-        stdio: "inherit",
-        shell: true,
-      });
-
-      if (result.error) {
-        console.error("Error running setup script:", result.error);
-      } else if (result.status !== 0) {
-        console.error("Setup script exited with code:", result.status);
-      } else {
-        console.log("Setup permissions script completed successfully");
-      }
+      // Do NOT run the setup script as it creates default files
+      return false;
     } catch (error) {
-      console.error("Failed to run setup permissions script:", error);
+      console.error("Failed to display setup message:", error);
+      return false;
     }
   }
 

@@ -27,24 +27,33 @@ warning() {
   echo -e "${YELLOW}[$(date '+%Y-%m-%d %H:%M:%S')] WARNING: $1${NC}"
 }
 
-log "Setting up directories and symlinks..."
+log "===== SETUP PERMISSIONS SCRIPT ====="
+log "IMPORTANT: This script NEVER creates files in the .evilginx directory"
+log "It only ensures panel/data directory permissions and creates symlinks if needed"
 
-# Create necessary directories if they don't exist
-mkdir -p "$EVILGINX_DIR"
-mkdir -p "$DATA_DIR"
-chmod 755 "$EVILGINX_DIR"
-chmod 755 "$DATA_DIR"
-chown $CURRENT_USER:$GROUP "$EVILGINX_DIR"
-chown $CURRENT_USER:$GROUP "$DATA_DIR"
-log "Panel data directory ready: $DATA_DIR"
+# Ensure panel data directory exists
+if [[ ! -d "$DATA_DIR" ]]; then
+  mkdir -p "$DATA_DIR"
+  chmod 755 "$DATA_DIR"
+  chown $CURRENT_USER:$GROUP "$DATA_DIR"
+  log "Created panel data directory: $DATA_DIR"
+else
+  chmod 755 "$DATA_DIR"
+  chown $CURRENT_USER:$GROUP "$DATA_DIR"
+  log "Panel data directory already exists: $DATA_DIR"
+fi
 
-# Create crt directory if it doesn't exist
-mkdir -p "$EVILGINX_DIR/crt"
-chmod 755 "$EVILGINX_DIR/crt"
-chown $CURRENT_USER:$GROUP "$EVILGINX_DIR/crt"
-log "Certificate directory ready: $EVILGINX_DIR/crt"
+# Verify .evilginx directory exists - DO NOT CREATE IT
+if [[ ! -d "$EVILGINX_DIR" ]]; then
+  error "The .evilginx directory doesn't exist at $EVILGINX_DIR"
+  error "This script will NOT create this directory."
+  error "You must create it manually before proceeding."
+  exit 1
+else
+  log "Found .evilginx directory at: $EVILGINX_DIR"
+fi
 
-# Files to sync from .evilginx
+# Files to symlink from .evilginx - MUST already exist
 FILES_TO_SYNC=(
   "blacklist.txt"
   "config.json"
@@ -55,59 +64,6 @@ FILES_TO_SYNC=(
 LOCAL_FILES=(
   "auth.db"
 )
-
-# Ensure .evilginx directory and required files exist
-# IMPORTANT: Never overwrite existing files - only create if missing!
-ensure_evilginx_exists() {
-  log "Ensuring .evilginx files exist (preserving existing content)..."
-  
-  # Check if required files exist and create only if missing
-  for file in "${FILES_TO_SYNC[@]}"; do
-    evilginx_file="$EVILGINX_DIR/$file"
-    
-    if [[ ! -f "$evilginx_file" ]]; then
-      log "File $file doesn't exist in .evilginx directory, creating minimal version..."
-      
-      if [[ "$file" == "config.json" ]]; then
-        # Create a properly structured config.json with required fields
-        cat > "$evilginx_file" << EOF
-{
-  "blacklist": {
-    "mode": "unauth"
-  },
-  "general": {
-    "domain": "",
-    "ipv4": "",
-    "external_ipv4": "",
-    "bind_ipv4": "",
-    "unauth_url": "",
-    "https_port": 443,
-    "dns_port": 53,
-    "autocert": true,
-    "telegram_bot_token": "",
-    "telegram_chat_id": ""
-  },
-  "phishlets": {}
-}
-EOF
-      elif [[ "$file" == "blacklist.txt" ]]; then
-        # Create empty blacklist file
-        touch "$evilginx_file"
-      elif [[ "$file" == "data.db" ]]; then
-        # Create empty SQLite database file
-        touch "$evilginx_file"
-      fi
-      
-      chmod 644 "$evilginx_file"
-      chown $CURRENT_USER:$GROUP "$evilginx_file"
-      log "Created minimal $file in .evilginx directory"
-    else
-      log "✅ $file already exists in .evilginx directory, preserving content"
-    fi
-  done
-  
-  log "All required files exist in .evilginx directory."
-}
 
 # Create local files like auth.db
 create_local_files() {
@@ -136,6 +92,33 @@ create_local_files() {
   done
 }
 
+# Check if required files exist in .evilginx directory - DO NOT CREATE THEM
+check_evilginx_files() {
+  log "Checking for required files in .evilginx directory..."
+  local all_exists=true
+  
+  for file in "${FILES_TO_SYNC[@]}"; do
+    evilginx_file="$EVILGINX_DIR/$file"
+    
+    if [[ ! -f "$evilginx_file" ]]; then
+      error "File $file doesn't exist in .evilginx directory!"
+      error "This script will NOT create this file."
+      error "You must create it manually before setting up symlinks."
+      all_exists=false
+    else
+      log "✅ $file exists in .evilginx directory"
+    fi
+  done
+  
+  if [[ "$all_exists" == "false" ]]; then
+    error "Some required files are missing from .evilginx directory."
+    error "Please create these files manually before proceeding."
+    exit 1
+  fi
+  
+  log "All required files exist in .evilginx directory."
+}
+
 # Create symlinks from panel/data to .evilginx files
 create_symlinks() {
   log "Creating symlinks from panel/data to .evilginx files..."
@@ -144,6 +127,14 @@ create_symlinks() {
     evilginx_file="$EVILGINX_DIR/$file"
     panel_file="$DATA_DIR/$file"
     
+    # Check if source file exists first - DO NOT CREATE IT
+    if [[ ! -f "$evilginx_file" ]]; then
+      error "Source file $evilginx_file doesn't exist, cannot create symlink"
+      error "This script will NOT create this file."
+      error "You must create it manually before proceeding."
+      continue
+    fi
+    
     # Check if symlink already exists and points to the correct file
     if [[ -L "$panel_file" ]]; then
       local target=$(readlink "$panel_file")
@@ -151,20 +142,28 @@ create_symlinks() {
         log "✅ $file is already properly symlinked"
         continue
       else
-        log "Removing incorrect symlink for $file"
-        rm -f "$panel_file"
+        warning "Symlink for $file points to wrong target: $target"
+        read -p "Do you want to fix this symlink? (y/n): " choice
+        if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
+          log "Removing incorrect symlink for $file"
+          rm -f "$panel_file"
+        else
+          warning "Keeping existing symlink. This may cause issues."
+          continue
+        fi
       fi
     elif [[ -e "$panel_file" && ! -L "$panel_file" ]]; then
       # Regular file exists, not a symlink
       warning "Found regular file $panel_file instead of symlink"
-      warning "Moving original file to $panel_file.bak"
-      mv "$panel_file" "$panel_file.bak"
-    fi
-    
-    # Always make sure the source file exists before creating a symlink
-    if [[ ! -f "$evilginx_file" ]]; then
-      error "Source file $evilginx_file doesn't exist, cannot create symlink"
-      continue
+      warning "This may indicate that you have custom data that should not be overwritten"
+      read -p "Do you want to replace it with a symlink to the .evilginx file? (y/n): " choice
+      if [[ "$choice" == "y" || "$choice" == "Y" ]]; then
+        warning "Moving original file to $panel_file.bak"
+        mv "$panel_file" "$panel_file.bak"
+      else
+        warning "Keeping existing file. This may cause issues with synchronization."
+        continue
+      fi
     fi
     
     # Create the symlink from panel/data to .evilginx using relative path
@@ -233,10 +232,11 @@ verify_symlinks() {
   fi
 }
 
-# Run all steps
-ensure_evilginx_exists
-create_symlinks
+# Run steps in proper order - NEVER CREATE .evilginx FILES
+log "Checking for required files and permissions"
+check_evilginx_files
 create_local_files
+create_symlinks
 verify_symlinks
 
 log "=== Setup complete ==="
