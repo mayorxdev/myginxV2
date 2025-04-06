@@ -33,6 +33,7 @@ cd data
  chmod +x config_monitor.sh
  chmod +x sync_files.sh
  chmod +x init_sync_watch.sh
+ chmod +x fix_config.sh
 
 
 cd ..

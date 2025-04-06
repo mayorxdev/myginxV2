@@ -138,6 +138,21 @@ EOF
       fi
       chmod 644 "$evilginx_file"
       chown $CURRENT_USER:$GROUP "$evilginx_file"
+    elif [[ "$file" == "config.json" ]]; then
+      # If config.json exists, ensure it has the proper structure
+      log "Checking existing config.json structure..."
+      FIX_CONFIG_SCRIPT="$DATA_DIR/fix_config.sh"
+      if [[ -f "$FIX_CONFIG_SCRIPT" ]]; then
+        # Make script executable if it isn't already
+        if [[ ! -x "$FIX_CONFIG_SCRIPT" ]]; then
+          chmod +x "$FIX_CONFIG_SCRIPT"
+        fi
+        
+        # Run the fix_config.sh script to ensure proper structure
+        bash "$FIX_CONFIG_SCRIPT"
+      else
+        log "Warning: fix_config.sh not found, skipping config validation"
+      fi
     fi
   done
   
