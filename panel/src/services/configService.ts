@@ -533,6 +533,24 @@ export class ConfigService {
     }
   }
 
+  /**
+   * Gets all lures from the config file
+   * @returns Array of lures or empty array if none found
+   */
+  public async getAllLures(): Promise<Lure[]> {
+    try {
+      const config = await this.readConfig();
+      if (!config || !config.lures || !Array.isArray(config.lures)) {
+        return [];
+      }
+
+      return config.lures;
+    } catch (error) {
+      console.error("Error getting lures:", error);
+      return [];
+    }
+  }
+
   // Enhanced safety checks for file operations
   private safeWriteFile(filePath: string, content: string): boolean {
     try {

