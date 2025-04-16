@@ -454,6 +454,11 @@ export default function Dashboard() {
       cell: (value) => String(value || "N/A"),
     },
     {
+      header: "Type",
+      accessor: "phishlet",
+      cell: (value) => String(value || "N/A"),
+    },
+    {
       header: "Username",
       accessor: "username",
       cell: (value) => (
