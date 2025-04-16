@@ -113,7 +113,11 @@ export default async function handler(
       }
     }
 
-    res.status(200).json({ success: true });
+    res.status(200).json({
+      success: true,
+      action: "started",
+      message: "Evilginx service started successfully",
+    });
   } catch (error) {
     console.error("Error toggling service:", error);
     return res.status(500).json({
