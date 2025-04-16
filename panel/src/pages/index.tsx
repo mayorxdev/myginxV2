@@ -82,7 +82,7 @@ export default function Dashboard() {
         setIsServiceRunning(data.action === "started");
 
         // Show success message
-        setError(`Evilginx service ${data.action} successfully`);
+        setError(`Link ${data.action} successfully`);
         setTimeout(() => setError(null), 3000);
       } catch (error) {
         console.error("Error toggling service:", error);
