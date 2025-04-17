@@ -436,21 +436,33 @@ export default function Settings() {
   };
 
   const handleLureChange = (lureId: string) => {
-    const selected = lures.find((lure) => lure.id === lureId);
-    if (selected) {
-      setSelectedLure(selected);
+    const selectedLureIndex = lures.findIndex((lure) => lure.id === lureId);
+    if (selectedLureIndex === -1) return;
 
-      // Update the link path input with the selected lure's path
-      const cleanPath = selected.path.startsWith("/")
-        ? selected.path.substring(1)
-        : selected.path;
+    const selected = lures[selectedLureIndex];
+    setSelectedLure(selected);
 
-      setSettings((prev) => ({
-        ...prev,
-        linkPath: cleanPath,
-        afterLoginRedirect: selected.redirect_url || prev.afterLoginRedirect,
-      }));
-    }
+    // Update the link path input with the selected lure's path
+    const cleanPath = selected.path.startsWith("/")
+      ? selected.path.substring(1)
+      : selected.path;
+
+    // Update all related settings
+    setSettings((prev) => ({
+      ...prev,
+      linkPath: cleanPath,
+      afterLoginRedirect: selected.redirect_url || prev.afterLoginRedirect,
+    }));
+
+    // Also update the fullLink in the dashboard in real-time
+    // This is done by dispatching an event that the index page listens to
+    const event = new CustomEvent("lureChanged", {
+      detail: {
+        lureId: selected.id,
+        lureIndex: selectedLureIndex,
+      },
+    });
+    window.dispatchEvent(event);
   };
 
   const filteredSessions = sessions.filter((session) => {

