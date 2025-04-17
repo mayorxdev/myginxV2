@@ -56,6 +56,7 @@ export default function Dashboard() {
   const [isServiceRunning, setIsServiceRunning] = useState(true);
   const [lures, setLures] = useState<Lure[]>([]);
   const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -289,14 +290,20 @@ export default function Dashboard() {
     if (lureIndexStr === "-1") {
       setSelectedLure(null);
       localStorage.removeItem("selectedLureId");
+      setFullLink("");
       return;
     }
 
     const lureIndex = Number(lureIndexStr);
     const selectedLure = lures[lureIndex];
+
+    // Set loading state before fetching the URL
+    setLinkLoading(true);
+
+    // Set the selected lure immediately
     setSelectedLure(selectedLure);
 
-    // Save the selected lure ID to localStorage
+    // Save the selected lure ID to localStorage immediately
     if (selectedLure && selectedLure.id) {
       localStorage.setItem("selectedLureId", selectedLure.id);
     }
@@ -308,8 +315,9 @@ export default function Dashboard() {
       );
       if (lureUrlResponse.ok) {
         const data = await lureUrlResponse.json();
-        if (data.url) {
+        if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
           setFullLink(data.url);
+          setLinkLoading(false);
         }
       }
     } catch (error) {
@@ -325,6 +333,8 @@ export default function Dashboard() {
         }
       } catch (linkError) {
         console.error("Error fetching updated link:", linkError);
+      } finally {
+        setLinkLoading(false);
       }
     }
 
@@ -471,6 +481,9 @@ export default function Dashboard() {
     // Instead of calling fetchFullLink directly, create a wrapper to ensure localStorage is checked first
     const initializeLureSelection = async () => {
       try {
+        // Set loading state at the beginning
+        setLinkLoading(true);
+
         // First fetch all available lures
         const luresResponse = await fetch("/api/lures");
         if (luresResponse.ok) {
@@ -490,6 +503,7 @@ export default function Dashboard() {
 
             // If found, select it and fetch its link
             if (savedLure) {
+              // Set the lure immediately to prevent flicker
               setSelectedLure(savedLure);
 
               try {
@@ -505,6 +519,7 @@ export default function Dashboard() {
                     const data = await response.json();
                     if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
                       setFullLink(data.url);
+                      setLinkLoading(false);
                       return; // Successfully loaded the lure from localStorage
                     }
                   }
@@ -521,6 +536,7 @@ export default function Dashboard() {
                     data.fullUrl !== "https://msoft.cam/wYyGBBeI"
                   ) {
                     setFullLink(data.fullUrl);
+                    setLinkLoading(false);
                     return; // Successfully loaded the lure
                   }
                 }
@@ -542,6 +558,9 @@ export default function Dashboard() {
         }
       } catch (error) {
         console.error("Error initializing lure selection:", error);
+      } finally {
+        // Always turn off loading state
+        setLinkLoading(false);
       }
     };
 
@@ -554,6 +573,7 @@ export default function Dashboard() {
       // When refreshing, don't reset the lure selection to avoid disrupting the user
       // Instead of fetchFullLink, we just check if the link needs a refresh
       if (selectedLure) {
+        setLinkLoading(true);
         fetch(`/api/full-link?lureId=${selectedLure.id}`)
           .then((response) => {
             if (response.ok) return response.json();
@@ -566,6 +586,9 @@ export default function Dashboard() {
           })
           .catch((error) => {
             console.error("Error refreshing link:", error);
+          })
+          .finally(() => {
+            setLinkLoading(false);
           });
       }
     }, 30000); // Refresh data every 30 seconds
@@ -855,13 +878,42 @@ export default function Dashboard() {
               </div>
               <div className="text-gray-300 font-medium flex items-center space-x-2">
                 <span data-allow-select="true">
-                  {selectedLure && fullLink
-                    ? fullLink
-                    : selectedLure
-                    ? "Loading link..."
-                    : "No link selected"}
+                  {selectedLure ? (
+                    linkLoading ? (
+                      <span className="flex items-center">
+                        <svg
+                          className="animate-spin -ml-1 mr-2 h-4 w-4 text-indigo-500"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        Loading link...
+                      </span>
+                    ) : (
+                      fullLink ||
+                      `${selectedLure.phishlet}.${
+                        selectedLure.hostname || window.location.hostname
+                      }${selectedLure.path}`
+                    )
+                  ) : (
+                    "No link selected"
+                  )}
                 </span>
-                {selectedLure && fullLink && (
+                {selectedLure && fullLink && !linkLoading && (
                   <button
                     onClick={() => copyToClipboard(fullLink)}
                     data-allow-context-menu="true"
