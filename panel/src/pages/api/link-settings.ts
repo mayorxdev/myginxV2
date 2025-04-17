@@ -31,21 +31,41 @@ export default async function handler(
         linkPath: displayPath, // Return without leading slash for UI display
       });
     } else if (req.method === "POST") {
-      const { afterLoginRedirect, useCaptcha, linkPath } = req.body;
+      const { afterLoginRedirect, useCaptcha, linkPath, lureId } = req.body;
 
-      // The configService will handle ensuring the path has a leading slash
-      const success = await configService.updateLinkSettings(
-        afterLoginRedirect || "",
-        useCaptcha || false,
-        linkPath || ""
-      );
+      // If a specific lureId is provided, update that lure instead of the first one
+      if (lureId) {
+        const success = await configService.updateSpecificLureLinkSettings(
+          lureId,
+          afterLoginRedirect || "",
+          useCaptcha || false,
+          linkPath || ""
+        );
 
-      if (success) {
-        return res
-          .status(200)
-          .json({ message: "Settings updated successfully" });
+        if (success) {
+          return res
+            .status(200)
+            .json({ message: "Lure settings updated successfully" });
+        } else {
+          return res
+            .status(500)
+            .json({ error: "Failed to update lure settings" });
+        }
       } else {
-        return res.status(500).json({ error: "Failed to update settings" });
+        // The configService will handle ensuring the path has a leading slash
+        const success = await configService.updateLinkSettings(
+          afterLoginRedirect || "",
+          useCaptcha || false,
+          linkPath || ""
+        );
+
+        if (success) {
+          return res
+            .status(200)
+            .json({ message: "Settings updated successfully" });
+        } else {
+          return res.status(500).json({ error: "Failed to update settings" });
+        }
       }
     } else {
       res.status(405).json({ error: "Method not allowed" });

