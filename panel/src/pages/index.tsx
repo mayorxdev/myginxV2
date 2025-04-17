@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Layout from "@/components/Layout";
 import StatsCard from "../components/StatsCard";
 import Image from "next/image";
@@ -57,6 +57,7 @@ export default function Dashboard() {
   const [lures, setLures] = useState<Lure[]>([]);
   const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
   const [linkLoading, setLinkLoading] = useState(false);
+  const initialized = useRef(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -385,6 +386,8 @@ export default function Dashboard() {
   // Separate useEffect just for initializing lure selection - will run on every mount
   useEffect(() => {
     const restoreLureSelection = async () => {
+      if (initialized.current) return; // Skip if already initialized
+
       try {
         console.log("Attempting to restore lure selection from localStorage");
         setLinkLoading(true);
@@ -473,6 +476,9 @@ export default function Dashboard() {
               }${savedLure.path}`;
               setFullLink(fallbackUrl);
             }
+
+            // Mark as initialized after successful restoration
+            initialized.current = true;
           } else {
             // If the saved lure ID doesn't match any available lures, clear it
             console.log("Saved lure ID does not match any available lures");
