@@ -20,11 +20,13 @@ export default async function handler(
   }
 
   try {
-    // Check if a specific lure ID was requested
-    const { lureId } = req.query;
+    // Check if a specific lure index was requested
+    const { lureIndex } = req.query;
 
-    // Get the link info, specifying lure ID if provided
-    const linkInfo = await configService.getFullLink(lureId as string);
+    // Get the link info, specifying lure index if provided
+    const linkInfo = await configService.getFullLink(
+      lureIndex !== undefined ? Number(lureIndex) : undefined
+    );
 
     if (!linkInfo) {
       return res.status(200).json({
@@ -49,17 +51,22 @@ export default async function handler(
 
         const domain = config.general?.domain || "";
 
-        // Try to use the specified lure ID if provided
-        const { lureId } = req.query;
+        // Try to use the specified lure index if provided
+        const { lureIndex } = req.query;
         let selectedLure: ConfigLure | undefined;
 
-        if (lureId && config.lures && Array.isArray(config.lures)) {
-          selectedLure = config.lures.find(
-            (lure: ConfigLure) => lure.id === lureId
-          );
+        if (
+          lureIndex !== undefined &&
+          config.lures &&
+          Array.isArray(config.lures)
+        ) {
+          const index = Number(lureIndex);
+          if (!isNaN(index) && index >= 0 && index < config.lures.length) {
+            selectedLure = config.lures[index];
+          }
         }
 
-        // If no lure ID specified or not found, use the first lure
+        // If no lure index specified or not found, use the first lure
         const lure: ConfigLure =
           selectedLure || (config.lures?.[0] as ConfigLure) || {};
         const path = lure.path || "";

