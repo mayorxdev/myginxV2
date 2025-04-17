@@ -8,6 +8,7 @@ import IPCell from "../components/IPCell";
 import LoginPieChart from "@/components/LoginPieChart";
 import CountryBarChart from "@/components/CountryBarChart";
 import MapWrapper from "@/components/MapWrapper";
+import { useRouter } from "next/router";
 
 interface TokenData {
   [domain: string]: {
@@ -38,6 +39,30 @@ interface TableColumn {
   accessor: keyof Session;
   cell: (value: CellValue, session: Session) => React.ReactNode;
 }
+
+// Add a global event to synchronize lure state across tabs/windows
+const LURE_SELECTION_CHANGED_EVENT = "lureSelectionChanged";
+
+// Create an event dispatcher to notify about lure changes
+const dispatchLureSelectionChanged = (lureId: string) => {
+  // Update localStorage
+  localStorage.setItem("selectedLureId", lureId);
+
+  // Dispatch a custom event that can be listened to by other components
+  const event = new CustomEvent(LURE_SELECTION_CHANGED_EVENT, {
+    detail: { lureId },
+  });
+  window.dispatchEvent(event);
+
+  // Also try to update URL if possible (without causing navigation)
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("lureId", lureId);
+    window.history.replaceState({}, "", url.toString());
+  } catch (e) {
+    console.error("Error updating URL:", e);
+  }
+};
 
 export default function Dashboard() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -285,11 +310,26 @@ export default function Dashboard() {
     });
   };
 
+  // Add router for URL query params
+  const router = useRouter();
+
+  // Enhanced handleLureChange function with multiple persistence methods
   const handleLureChange = async (lureIndexStr: string) => {
     // If "Select link" is chosen (value -1), clear the selected lure
     if (lureIndexStr === "-1") {
       setSelectedLure(null);
       localStorage.removeItem("selectedLureId");
+      sessionStorage.removeItem("selectedLureId");
+
+      // Clear URL parameter without navigation
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("lureId");
+        window.history.replaceState({}, "", url.toString());
+      } catch (e) {
+        console.error("Error updating URL:", e);
+      }
+
       setFullLink("");
       return;
     }
@@ -303,10 +343,22 @@ export default function Dashboard() {
     // Set the selected lure immediately
     setSelectedLure(selectedLure);
 
-    // Save the selected lure ID to localStorage immediately
+    // Save the selected lure ID using multiple methods
     if (selectedLure && selectedLure.id) {
-      console.log("Saving lure ID to localStorage:", selectedLure.id);
-      localStorage.setItem("selectedLureId", selectedLure.id);
+      console.log("Saving lure ID to persistent storage:", selectedLure.id);
+
+      // Use our custom event dispatcher for comprehensive updates
+      dispatchLureSelectionChanged(selectedLure.id);
+
+      // Also save to sessionStorage as a backup
+      sessionStorage.setItem("selectedLureId", selectedLure.id);
+
+      // Add to document.cookie for another fallback (expires in 30 days)
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + 30);
+      document.cookie = `selectedLureId=${
+        selectedLure.id
+      }; expires=${expiryDate.toUTCString()}; path=/`;
     }
 
     let gotValidUrl = false;
@@ -382,11 +434,32 @@ export default function Dashboard() {
     }
   };
 
-  // Separate useEffect just for initializing lure selection - will run on every mount
+  // Function to get lure ID from various sources (in priority order)
+  const getLureIdFromSources = () => {
+    // Try URL parameters first (from Next.js router)
+    const urlLureId = router.query.lureId as string;
+    if (urlLureId) return urlLureId;
+
+    // Check localStorage
+    const localStorageLureId = localStorage.getItem("selectedLureId");
+    if (localStorageLureId) return localStorageLureId;
+
+    // Check sessionStorage
+    const sessionStorageLureId = sessionStorage.getItem("selectedLureId");
+    if (sessionStorageLureId) return sessionStorageLureId;
+
+    // Check cookies
+    const cookieMatch = document.cookie.match(/selectedLureId=([^;]+)/);
+    if (cookieMatch) return cookieMatch[1];
+
+    return null;
+  };
+
+  // Enhanced restoration function for the main useEffect
   useEffect(() => {
     const restoreLureSelection = async () => {
       try {
-        console.log("Attempting to restore lure selection from localStorage");
+        console.log("Attempting to restore lure selection from all sources");
         setLinkLoading(true);
 
         // First fetch all available lures
@@ -401,9 +474,9 @@ export default function Dashboard() {
         // Update lures state
         setLures(availableLures);
 
-        // Get saved lure ID from localStorage
-        const savedLureId = localStorage.getItem("selectedLureId");
-        console.log("Found savedLureId in localStorage:", savedLureId);
+        // Get saved lure ID from multiple sources
+        const savedLureId = getLureIdFromSources();
+        console.log("Found savedLureId in persistent storage:", savedLureId);
 
         if (availableLures.length > 0 && savedLureId) {
           // Find the saved lure in the available lures
@@ -474,9 +547,23 @@ export default function Dashboard() {
               setFullLink(fallbackUrl);
             }
           } else {
-            // If the saved lure ID doesn't match any available lures, clear it
+            // If the saved lure ID doesn't match any available lures, clear it from all storage
             console.log("Saved lure ID does not match any available lures");
             localStorage.removeItem("selectedLureId");
+            sessionStorage.removeItem("selectedLureId");
+
+            // Clear from cookies
+            document.cookie =
+              "selectedLureId=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
+            // Clear URL parameter
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("lureId");
+              window.history.replaceState({}, "", url.toString());
+            } catch (e) {
+              console.error("Error updating URL:", e);
+            }
           }
         }
       } catch (error) {
@@ -489,8 +576,74 @@ export default function Dashboard() {
     // Always attempt to restore lure selection on mount
     restoreLureSelection();
 
-    // This useEffect only runs on mount
-  }, []);
+    // Set up listener for cross-component lure selection updates
+    const handleLureSelectionChanged = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { lureId } = customEvent.detail;
+
+      // Only update if we have lures and the ID isn't already selected
+      if (lures.length > 0 && (!selectedLure || selectedLure.id !== lureId)) {
+        const lure = lures.find((l) => l.id === lureId);
+        if (lure) {
+          setSelectedLure(lure);
+
+          // Fetch the URL for this lure
+          setLinkLoading(true);
+          const lureIndex = lures.findIndex((l) => l.id === lureId);
+
+          fetch(`/api/lure-url?lureIndex=${lureIndex}`)
+            .then((response) => (response.ok ? response.json() : null))
+            .then((data) => {
+              if (data?.url && data.url !== "https://msoft.cam/wYyGBBeI") {
+                setFullLink(data.url);
+              } else {
+                // Fallback
+                const fallbackUrl = `${lure.phishlet}.${
+                  lure.hostname || window.location.hostname
+                }${lure.path}`;
+                setFullLink(fallbackUrl);
+              }
+            })
+            .catch((error) => {
+              console.error("Error in event handler:", error);
+              // Fallback on error
+              const fallbackUrl = `${lure.phishlet}.${
+                lure.hostname || window.location.hostname
+              }${lure.path}`;
+              setFullLink(fallbackUrl);
+            })
+            .finally(() => {
+              setLinkLoading(false);
+            });
+        }
+      }
+    };
+
+    window.addEventListener(
+      LURE_SELECTION_CHANGED_EVENT,
+      handleLureSelectionChanged as EventListener
+    );
+
+    // Sync with URL parameter on router change
+    if (router.isReady && router.query.lureId && lures.length > 0) {
+      const urlLureId = router.query.lureId as string;
+      if (!selectedLure || selectedLure.id !== urlLureId) {
+        const lure = lures.find((l) => l.id === urlLureId);
+        if (lure) {
+          setSelectedLure(lure);
+          // The URL sync will trigger our main event handler to fetch the link
+          dispatchLureSelectionChanged(urlLureId);
+        }
+      }
+    }
+
+    return () => {
+      window.removeEventListener(
+        LURE_SELECTION_CHANGED_EVENT,
+        handleLureSelectionChanged as EventListener
+      );
+    };
+  }, [router.isReady, router.query, lures, selectedLure]);
 
   // Modify the original useEffect to not handle lure initialization
   useEffect(() => {
