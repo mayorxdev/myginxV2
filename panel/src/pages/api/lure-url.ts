@@ -1,10 +1,8 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { exec } from "child_process";
 import { promisify } from "util";
-import fs from "fs";
 
 const execAsync = promisify(exec);
-const fsPromises = fs.promises;
 
 export default async function handler(
   req: NextApiRequest,
@@ -13,11 +11,6 @@ export default async function handler(
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
-
-  // Create a unique temp file name for this request
-  const tempFile = `/tmp/evilginx_url_${Date.now()}_${Math.random()
-    .toString(36)
-    .substring(2, 10)}.txt`;
 
   try {
     // Get the lure index from the query parameters
@@ -43,89 +36,70 @@ export default async function handler(
       });
     }
 
-    // First, clear the prompt by sending an Enter key
-    await execAsync(`tmux send-keys -t ginx-0 C-c`);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    await execAsync(`tmux send-keys -t ginx-0 C-m`);
+    // First, clear the prompt by sending Enter and Ctrl+C
+    await execAsync(`tmux send-keys -t ginx-0 C-c C-m`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // Clear the screen to make output easier to capture
+    await execAsync(`tmux send-keys -t ginx-0 "clear" C-m`);
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    // Run the lures get-url command inside the tmux session and redirect output to a temp file
+    // Run the command directly (without redirection)
     await execAsync(
-      `tmux send-keys -t ginx-0 "lures get-url ${lureIndex} > ${tempFile} 2>&1" C-m`
+      `tmux send-keys -t ginx-0 "lures get-url ${lureIndex}" C-m`
     );
 
-    // Give evilginx time to execute the command and write to the file
-    // Start with a small delay and increase if needed
-    let attempts = 0;
-    let fileContent = "";
+    // Wait for command to execute
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    while (attempts < 5) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    // Capture the output from the pane
+    const { stdout: capturedOutput } = await execAsync(
+      `tmux capture-pane -t ginx-0 -p`
+    );
 
-      try {
-        // Check if the file exists and has content
-        if (fs.existsSync(tempFile)) {
-          fileContent = await fsPromises.readFile(tempFile, "utf8");
-          if (fileContent.trim()) {
-            break; // We have content, exit the loop
-          }
-        }
-      } catch (_err) {
-        // Ignore file read errors, will retry
-      }
+    // Parse the output to find the URL
+    const lines = capturedOutput.split("\n");
 
-      attempts++;
-    }
-
-    // If the file doesn't exist or is empty after all attempts, return an error
-    if (!fileContent.trim()) {
-      return res.status(500).json({
-        error: "Failed to get output from evilginx command",
-      });
-    }
-
-    try {
-      // Clean up the temp file
-      await fsPromises.unlink(tempFile);
-    } catch (_err) {
-      // Ignore cleanup errors
-    }
-
-    // Extract the URL from the output
-    const lines = fileContent.trim().split("\n");
-
-    // Look for a line that starts with http
+    // Look for the line with the URL - it should come after the "lures get-url" command
     let url = "";
+    let foundCommand = false;
+
     for (const line of lines) {
-      if (line.trim().startsWith("http")) {
-        url = line.trim();
-        break;
+      const trimmedLine = line.trim();
+
+      // Skip empty lines
+      if (!trimmedLine) continue;
+
+      // Look for the line where the command was executed
+      if (trimmedLine.includes(`lures get-url ${lureIndex}`)) {
+        foundCommand = true;
+        continue;
+      }
+
+      // After finding the command, look for the URL in subsequent lines
+      if (foundCommand) {
+        // Skip error lines or info lines
+        if (trimmedLine.includes("[err]") || trimmedLine.includes("[inf]")) {
+          continue;
+        }
+
+        // The URL should be on a line by itself and start with http
+        if (trimmedLine.startsWith("http")) {
+          url = trimmedLine;
+          break;
+        }
       }
     }
 
-    // If we didn't find a URL, use the last line as fallback
-    if (!url && lines.length > 0) {
-      url = lines[lines.length - 1].trim();
-    }
-
-    if (!url.startsWith("http")) {
+    if (!url) {
       return res.status(500).json({
-        error: "Failed to get valid URL from evilginx",
-        output: fileContent,
+        error: "Could not find URL in command output",
+        output: capturedOutput,
       });
     }
 
     return res.status(200).json({ url });
   } catch (error) {
-    // Always try to clean up the temp file in case of error
-    try {
-      if (fs.existsSync(tempFile)) {
-        await fsPromises.unlink(tempFile);
-      }
-    } catch (_err) {
-      // Ignore cleanup errors
-    }
-
     console.error("Error executing evilginx command:", error);
     return res.status(500).json({
       error: "Failed to execute evilginx command",
