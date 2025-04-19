@@ -56,6 +56,7 @@ export default function Dashboard() {
   const [isServiceRunning, setIsServiceRunning] = useState(true);
   const [lures, setLures] = useState<Lure[]>([]);
   const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
+  const [dropdownSelected, setDropdownSelected] = useState(-1);
   const [linkLoading, setLinkLoading] = useState(false);
 
   // Pagination state
@@ -286,6 +287,9 @@ export default function Dashboard() {
   };
 
   const handleLureChange = async (lureIndexStr: string) => {
+    // Update the dropdown selection
+    setDropdownSelected(Number(lureIndexStr));
+
     // If "Select link" is chosen (value -1), clear the selected lure
     if (lureIndexStr === "-1") {
       setSelectedLure(null);
@@ -700,6 +704,9 @@ export default function Dashboard() {
         // Update selected lure
         setSelectedLure(selected);
 
+        // Set dropdown to show "Select link" even though a lure is selected
+        setDropdownSelected(-1);
+
         // Save selected lure ID to localStorage
         localStorage.setItem("selectedLureId", lureId);
 
@@ -755,11 +762,10 @@ export default function Dashboard() {
 
       // If there's a selected lure, ensure the dropdown reflects it
       if (selectedLure) {
-        // Make sure the dropdown selection matches the current selectedLure
-        // This ensures dropdown stays consistent after navigation
+        // Set the dropdown to "Select link" by default
+        setDropdownSelected(-1);
         console.log(
-          "Ensuring dropdown selection matches selectedLure:",
-          selectedLure.id
+          "Setting dropdown to 'Select link' while keeping selectedLure"
         );
       }
       // If no selected lure but we have one in localStorage, restore it
@@ -768,6 +774,7 @@ export default function Dashboard() {
         if (savedLure) {
           console.log("Restoring selectedLure from localStorage:", savedLureId);
           setSelectedLure(savedLure);
+          setDropdownSelected(-1); // Keep dropdown showing "Select link"
 
           // Also restore the URL
           const lureIndex = lures.findIndex((lure) => lure.id === savedLureId);
@@ -955,11 +962,7 @@ export default function Dashboard() {
                 {lures.length > 0 ? (
                   <select
                     className="text-gray-200 bg-[#1B2028] border border-gray-700 rounded px-2 py-1 text-sm"
-                    value={
-                      selectedLure
-                        ? lures.findIndex((lure) => lure.id === selectedLure.id)
-                        : -1
-                    }
+                    value={dropdownSelected}
                     onChange={(e) => handleLureChange(e.target.value)}
                     data-testid="lure-selector"
                   >
