@@ -704,8 +704,8 @@ export default function Dashboard() {
         // Update selected lure
         setSelectedLure(selected);
 
-        // Set dropdown to show "Select link" even though a lure is selected
-        setDropdownSelected(-1);
+        // Set dropdown to show the actual selected lure
+        setDropdownSelected(lureIndex);
 
         // Save selected lure ID to localStorage
         localStorage.setItem("selectedLureId", lureId);
@@ -762,11 +762,17 @@ export default function Dashboard() {
 
       // If there's a selected lure, ensure the dropdown reflects it
       if (selectedLure) {
-        // Set the dropdown to "Select link" by default
-        setDropdownSelected(-1);
-        console.log(
-          "Setting dropdown to 'Select link' while keeping selectedLure"
+        // Update dropdown to show the currently selected lure
+        const selectedIndex = lures.findIndex(
+          (lure) => lure.id === selectedLure.id
         );
+        if (selectedIndex >= 0) {
+          setDropdownSelected(selectedIndex);
+          console.log(
+            "Setting dropdown to match selected lure:",
+            selectedLure.id
+          );
+        }
       }
       // If no selected lure but we have one in localStorage, restore it
       else if (savedLureId) {
@@ -774,7 +780,12 @@ export default function Dashboard() {
         if (savedLure) {
           console.log("Restoring selectedLure from localStorage:", savedLureId);
           setSelectedLure(savedLure);
-          setDropdownSelected(-1); // Keep dropdown showing "Select link"
+
+          // Update dropdown to show the restored lure
+          const savedIndex = lures.findIndex((lure) => lure.id === savedLureId);
+          if (savedIndex >= 0) {
+            setDropdownSelected(savedIndex);
+          }
 
           // Also restore the URL
           const lureIndex = lures.findIndex((lure) => lure.id === savedLureId);
