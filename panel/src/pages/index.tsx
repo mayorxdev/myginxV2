@@ -291,6 +291,7 @@ export default function Dashboard() {
     if (lureIndexStr === "-1") {
       setSelectedLure(null);
       localStorage.removeItem("selectedLureId");
+      localStorage.removeItem("fullLink");
       setFullLink("");
       return;
     }
@@ -321,6 +322,7 @@ export default function Dashboard() {
         const data = await lureUrlResponse.json();
         if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
           setFullLink(data.url);
+          localStorage.setItem("fullLink", data.url);
           gotValidUrl = true;
         }
       }
@@ -338,6 +340,7 @@ export default function Dashboard() {
           const data = await linkResponse.json();
           if (data.fullUrl) {
             setFullLink(data.fullUrl);
+            localStorage.setItem("fullLink", data.fullUrl);
             gotValidUrl = true;
           }
         }
@@ -352,6 +355,7 @@ export default function Dashboard() {
         selectedLure.hostname || window.location.hostname
       }${selectedLure.path}`;
       setFullLink(fallbackUrl);
+      localStorage.setItem("fullLink", fallbackUrl);
     }
 
     // Always turn off loading regardless of success or failure
@@ -386,8 +390,7 @@ export default function Dashboard() {
   // Separate useEffect just for initializing lure selection - will run on every mount
   useEffect(() => {
     const restoreLureSelection = async () => {
-      if (initialized.current) return; // Skip if already initialized
-
+      // Remove the initialized.current check to allow restoration on every mount
       try {
         console.log("Attempting to restore lure selection from localStorage");
         setLinkLoading(true);
@@ -407,6 +410,13 @@ export default function Dashboard() {
         // Get saved lure ID from localStorage
         const savedLureId = localStorage.getItem("selectedLureId");
         console.log("Found savedLureId in localStorage:", savedLureId);
+
+        // Get saved full link from localStorage, if available
+        const savedFullLink = localStorage.getItem("fullLink");
+        if (savedFullLink) {
+          console.log("Found saved fullLink in localStorage:", savedFullLink);
+          setFullLink(savedFullLink);
+        }
 
         if (availableLures.length > 0 && savedLureId) {
           // Find the saved lure in the available lures
@@ -434,6 +444,7 @@ export default function Dashboard() {
                   if (data.url && data.url !== "https://msoft.cam/wYyGBBeI") {
                     console.log("Successfully fetched lure URL:", data.url);
                     setFullLink(data.url);
+                    localStorage.setItem("fullLink", data.url);
                     gotValidUrl = true;
                   }
                 }
@@ -455,6 +466,7 @@ export default function Dashboard() {
                       data.fullUrl
                     );
                     setFullLink(data.fullUrl);
+                    localStorage.setItem("fullLink", data.fullUrl);
                     gotValidUrl = true;
                   }
                 }
@@ -467,6 +479,7 @@ export default function Dashboard() {
                 }${savedLure.path}`;
                 console.log("Using constructed fallback URL:", fallbackUrl);
                 setFullLink(fallbackUrl);
+                localStorage.setItem("fullLink", fallbackUrl);
               }
             } catch (error) {
               console.error("Error restoring lure URL:", error);
@@ -475,6 +488,7 @@ export default function Dashboard() {
                 savedLure.hostname || window.location.hostname
               }${savedLure.path}`;
               setFullLink(fallbackUrl);
+              localStorage.setItem("fullLink", fallbackUrl);
             }
 
             // Mark as initialized after successful restoration
@@ -496,6 +510,19 @@ export default function Dashboard() {
     restoreLureSelection();
 
     // This useEffect only runs on mount
+  }, []);
+
+  // Add an effect that runs on mount to immediately load the full link from localStorage
+  useEffect(() => {
+    // Get saved full link from localStorage, if available
+    const savedFullLink = localStorage.getItem("fullLink");
+    if (savedFullLink) {
+      console.log(
+        "Immediately setting fullLink from localStorage:",
+        savedFullLink
+      );
+      setFullLink(savedFullLink);
+    }
   }, []);
 
   // Modify the original useEffect to not handle lure initialization
@@ -951,6 +978,7 @@ export default function Dashboard() {
                         : -1
                     }
                     onChange={(e) => handleLureChange(e.target.value)}
+                    data-testid="lure-selector"
                   >
                     <option value="-1">Select link</option>
                     {lures.map((lure, index) => (
