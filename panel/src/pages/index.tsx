@@ -825,6 +825,26 @@ export default function Dashboard() {
     }
   }, [lures, selectedLure]);
 
+  // Add a useEffect to sync the dropdown with the full link
+  useEffect(() => {
+    if (fullLink && lures.length > 0) {
+      // Extract path from fullLink
+      const urlPath = fullLink.split("/").pop() || "";
+
+      // Find the matching lure by path in URL
+      const matchIndex = lures.findIndex(
+        (lure) =>
+          fullLink.includes(lure.path.replace("/", "")) ||
+          urlPath === lure.path.replace("/", "")
+      );
+
+      if (matchIndex >= 0 && matchIndex !== dropdownSelected) {
+        console.log("Syncing dropdown selection with URL:", matchIndex);
+        setDropdownSelected(matchIndex);
+      }
+    }
+  }, [fullLink, lures, dropdownSelected]);
+
   const columns: TableColumn[] = [
     {
       header: "ID",
@@ -973,7 +993,24 @@ export default function Dashboard() {
                 {lures.length > 0 ? (
                   <select
                     className="text-gray-200 bg-[#1B2028] border border-gray-700 rounded px-2 py-1 text-sm"
-                    value={dropdownSelected}
+                    value={(() => {
+                      // Determine the selected option based on the current fullLink
+                      if (!fullLink) return "-1";
+
+                      // Extract path from fullLink
+                      const urlPath = fullLink.split("/").pop() || "";
+
+                      // Find the matching lure by path in URL
+                      const matchIndex = lures.findIndex(
+                        (lure) =>
+                          fullLink.includes(lure.path.replace("/", "")) ||
+                          urlPath === lure.path.replace("/", "")
+                      );
+
+                      return matchIndex >= 0
+                        ? matchIndex.toString()
+                        : dropdownSelected.toString();
+                    })()}
                     onChange={(e) => handleLureChange(e.target.value)}
                     data-testid="lure-selector"
                   >
