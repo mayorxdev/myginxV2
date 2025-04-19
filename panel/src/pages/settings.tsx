@@ -664,7 +664,10 @@ export default function Settings() {
         </section>
 
         <section className="bg-[#232A34] rounded-lg p-6">
-          <h2 className="text-white text-xl mb-4">Link Configuration</h2>
+          <h2 className="text-white text-xl mb-4">
+            Link Configuration{" "}
+            {selectedLure && `(Currently editing: ${selectedLure.phishlet})`}
+          </h2>
           <form
             onSubmit={(e) => {
               e.preventDefault();
